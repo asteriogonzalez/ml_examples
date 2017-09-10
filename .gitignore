@@ -104,3 +104,5 @@ ENV/
 *.wpu
 *.wpr
 
+# Code Analysis and QA
+ca

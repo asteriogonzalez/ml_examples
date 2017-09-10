@@ -23,7 +23,7 @@ persistent=yes
 load-plugins=
 
 # Use multiple processes to speed up Pylint.
-jobs=1
+jobs=2
 
 # Allow loading of arbitrary C extensions. Extensions are imported into the
 # active Python interpreter and may run arbitrary code.
@@ -100,13 +100,13 @@ evaluation=10.0 - ((float(5 * error + warning + refactor + convention) / stateme
 
 # Spelling dictionary name. Available dictionaries: none. To make it working
 # install python-enchant package.
-spelling-dict=
+spelling-dict=en_US
 
 # List of comma separated words that should not be checked.
 spelling-ignore-words=
 
 # A path to a file that contains private dictionary; one word per line.
-spelling-private-dict-file=
+spelling-private-dict-file=~/.private_dict.txt
 
 # Tells whether to store unknown words to indicated private dictionary in
 # --spelling-private-dict-file option instead of raising a message.
@@ -236,7 +236,7 @@ bad-names=foo,bar,baz,toto,tutu,tata
 name-group=
 
 # Include a hint for the correct naming format with invalid-name
-include-naming-hint=no
+include-naming-hint=yes
 
 # List of decorators that produce properties, such as abc.abstractproperty. Add
 # to this list to register other decorators that produce valid properties.
@@ -249,7 +249,7 @@ function-rgx=[a-z_][a-z0-9_]{2,30}$
 function-name-hint=[a-z_][a-z0-9_]{2,30}$
 
 # Regular expression matching correct variable names
-variable-rgx=[a-z_][a-z0-9_]{2,30}$
+variable-rgx=([a-z_][a-z0-9_]{2,30}|[xyztXYZ][a-z0-9_]{0,30})$
 
 # Naming hint for variable names
 variable-name-hint=[a-z_][a-z0-9_]{2,30}$
@@ -343,7 +343,7 @@ max-args=5
 ignored-argument-names=_.*
 
 # Maximum number of locals for function / method body
-max-locals=15
+max-locals=20
 
 # Maximum number of return / yield for function / method body
 max-returns=6
@@ -377,15 +377,15 @@ deprecated-modules=regsub,TERMIOS,Bastion,rexec
 
 # Create a graph of every (i.e. internal and external) dependencies in the
 # given file (report RP0402 must not be disabled)
-import-graph=
+import-graph=ca/dep_all.dot
 
 # Create a graph of external dependencies in the given file (report RP0402 must
 # not be disabled)
-ext-import-graph=
+ext-import-graph=ca/dep_external.dot
 
 # Create a graph of internal dependencies in the given file (report RP0402 must
 # not be disabled)
-int-import-graph=
+int-import-graph=ca/dep_int.dot
 
 # Force import order to recognize a module as part of the standard
 # compatibility libraries.

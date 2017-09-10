@@ -4,7 +4,6 @@ Andrew Ng Coursera course
 https://www.coursera.org/learn/machine-learning/home/welcome
 buy using Python instead Octave.
 """
-# pylint: disable=C0103
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -22,7 +21,7 @@ def H(theta, X):
 
 
 def J(theta, X, y):
-    "The cost funtcion"
+    "The cost function"
     d = H(theta, X) - y
     return np.dot(d, d) / (2 * len(y))
 
@@ -37,11 +36,11 @@ def simple_lineal_regression():
     plt.ylabel('Profit in $10.000s')
     plt.xlabel('Population of City in 10,000s')
 
-    # initai seed for gradient descedent
+    # initial seed for gradient descent
     X, theta = setup_working_tensors(x)
     theta, evolution = gradient_descent(theta, X, y, evolution=True)
 
-    # draw the solution hypotesis
+    # draw the solution hypothesis
     x_ = np.linspace(np.min(X[:, 1]), np.max(X[:, 1]), 100)
     y_ = theta[0] + theta[1] * x_
     plt.plot(x_, y_, 'b-')
@@ -69,8 +68,8 @@ def simple_lineal_regression():
                cmap=cm.coolwarm, alpha=0.1,
                extent=(t0.min(), t0.max(), t1.min(), t1.max()))
 
-    CS = plt.contour(t0, t1, Z)
-    plt.clabel(CS, inline=1, fontsize=10)
+    cs = plt.contour(t0, t1, Z)
+    plt.clabel(cs, inline=1, fontsize=10)
     plt.title('Error function')
 
     ax.plot(theta[0], theta[1], 'rx')  # the solution
@@ -81,14 +80,14 @@ def simple_lineal_regression():
     ax = fig.gca(projection='3d')
     surf = ax.plot_surface(t0, t1, Z, cmap=cm.coolwarm, alpha=0.3)
     fig.colorbar(surf, shrink=0.5, aspect=5)
-    CS = plt.contour(t0, t1, Z)
+    cs = plt.contour(t0, t1, Z)
 
     ax.view_init(elev=35, azim=-45)  # Select a good point for the camera
     plt.show()
 
 
 def multivariate_linear_regression():
-    "LR with regularization and multiple variables"
+    "Linear Regression with regularization and multiple variables"
 
     # Load data from CSV
     x, y = load_XY_csv('ex1data2.txt')
@@ -101,7 +100,7 @@ def multivariate_linear_regression():
     # working ranges (both) are O(1)
     # plot_mesh(x[:, 0], x[:, 1], y)
 
-    # initai seed for gradient descedent
+    # initial seed for gradient descent
     X, theta = setup_working_tensors(x)
     theta, _ = gradient_descent(theta, X, y)
 

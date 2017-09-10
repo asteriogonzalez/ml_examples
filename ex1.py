@@ -4,13 +4,16 @@ Andrew Ng Coursera course
 https://www.coursera.org/learn/machine-learning/home/welcome
 buy using Python instead Octave.
 """
+# pylint: disable=C0103
+
 import numpy as np
 import matplotlib.pyplot as plt
-# from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
+from mpl_toolkits.mplot3d import Axes3D
 # import scipy.interpolate
 
-from aiml import gradient_descent
+from aiml import gradient_descent, feature_normalization, \
+    load_XY_csv, plot_mesh, setup_working_tensors, predict
 
 
 def H(theta, X):
@@ -24,27 +27,22 @@ def J(theta, X, y):
     return np.dot(d, d) / (2 * len(y))
 
 
-def main():
-    "Run Exercise 1 from Andre Ng Course"
+def simple_lineal_regression():
+    "Make a simple linear regression from from Andre Ng Exercise 1"
     # Load data from CSV
-    data = np.genfromtxt('ex1data1.txt', delimiter=',')
-    x, y = data[:, 0], data[:, 1]
+    x, y = load_XY_csv('ex1data1.txt')
 
     # just simply show the data
     plt.plot(x, y, 'rx')
     plt.ylabel('Profit in $10.000s')
     plt.xlabel('Population of City in 10,000s')
 
-    # setup linear regression feature vector with bias column
-    X = np.ones_like(data)
-    X[:, 1] = x
-
     # initai seed for gradient descedent
-    theta = np.random.random(data.shape[1])
+    X, theta = setup_working_tensors(x)
     theta, evolution = gradient_descent(theta, X, y, evolution=True)
 
     # draw the solution hypotesis
-    x_ = np.linspace(np.min(x), np.max(x), 100)
+    x_ = np.linspace(np.min(X[:, 1]), np.max(X[:, 1]), 100)
     y_ = theta[0] + theta[1] * x_
     plt.plot(x_, y_, 'b-')
     plt.show()
@@ -89,5 +87,32 @@ def main():
     plt.show()
 
 
+def multivariate_linear_regression():
+    "LR with regularization and multiple variables"
+
+    # Load data from CSV
+    x, y = load_XY_csv('ex1data2.txt')
+    plot_mesh(x[:, 0], x[:, 1], y)
+
+    # normalize and keep the normalization info
+    x, norm = feature_normalization(x)
+
+    # plot after normalization, to check that the
+    # working ranges (both) are O(1)
+    # plot_mesh(x[:, 0], x[:, 1], y)
+
+    # initai seed for gradient descedent
+    X, theta = setup_working_tensors(x)
+    theta, _ = gradient_descent(theta, X, y)
+
+    # predict a house price
+    sample = (3000, 3)
+    price = predict(sample, theta, norm)
+
+    print "Predict price for %d m2 and %d rooms house is $%d" % \
+          (sample[0], sample[1], price)
+
+
 if __name__ == '__main__':
-    main()
+    simple_lineal_regression()
+    multivariate_linear_regression()

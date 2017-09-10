@@ -1,13 +1,31 @@
 #!/usr/bin/env python
+"""This file contains the Linear Regression Exercise 1 from
+Andrew Ng Coursera course
+https://www.coursera.org/learn/machine-learning/home/welcome
+buy using Python instead Octave.
+"""
 import numpy as np
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
+# from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
-import scipy.interpolate
+# import scipy.interpolate
 
-from aiml import *
+from aiml import gradient_descent
+
+
+def H(theta, X):
+    "Linear regression Hypotesis"
+    return np.dot(X, theta)
+
+
+def J(theta, X, y):
+    "The cost funtcion"
+    d = H(theta, X) - y
+    return np.dot(d, d) / (2 * len(y))
+
 
 def main():
+    "Run Exercise 1 from Andre Ng Course"
     # Load data from CSV
     data = np.genfromtxt('ex1data1.txt', delimiter=',')
     x, y = data[:, 0], data[:, 1]
@@ -49,10 +67,9 @@ def main():
     # 2D plot with contours
     fig, ax = plt.subplots(1, 1)
 
-    im = plt.imshow(Z, interpolation='bilinear', origin='lower',
-                cmap=cm.coolwarm, alpha=0.1,
-                extent = (t0.min(), t0.max(), t1.min(), t1.max())
-                )
+    plt.imshow(Z, interpolation='bilinear', origin='lower',
+               cmap=cm.coolwarm, alpha=0.1,
+               extent=(t0.min(), t0.max(), t1.min(), t1.max()))
 
     CS = plt.contour(t0, t1, Z)
     plt.clabel(CS, inline=1, fontsize=10)
@@ -62,7 +79,7 @@ def main():
     plt.show()
 
     # 3D plot wit contour
-    fig = plt.figure(figsize=(10,5))
+    fig = plt.figure(figsize=(10, 5))
     ax = fig.gca(projection='3d')
     surf = ax.plot_surface(t0, t1, Z, cmap=cm.coolwarm, alpha=0.3)
     fig.colorbar(surf, shrink=0.5, aspect=5)
@@ -71,6 +88,6 @@ def main():
     ax.view_init(elev=35, azim=-45)  # Select a good point for the camera
     plt.show()
 
+
 if __name__ == '__main__':
     main()
-    print("-End-")

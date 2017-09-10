@@ -1,13 +1,7 @@
+"""Some convenient functions for all exercises
+"""
 import numpy as np
 
-def H(theta, X):
-    "Linear regression Hypotesis"
-    return np.dot(X, theta)
-
-def J(theta, X, y):
-    "The cost funtcion"
-    d = H(theta, X) - y
-    return np.dot(d, d) / (2 * len(y))
 
 def gradient_descent(theta, X, y, alpha=0.01, iters=20000, err=0.00001, evolution=False):
     "Simple Gradient Descent implementation"
@@ -24,7 +18,7 @@ def gradient_descent(theta, X, y, alpha=0.01, iters=20000, err=0.00001, evolutio
         s = np.dot(d, X)
         theta -= rate * s
         if not i % 100:
-            print('[%03d] err: %0.5f' % (i, J))
+            print '[%03d] err: %0.5f' % (i, J)
 
         if (last_err - J) < err:
             break
@@ -33,4 +27,3 @@ def gradient_descent(theta, X, y, alpha=0.01, iters=20000, err=0.00001, evolutio
             progress.append(last_err)
 
     return theta, progress
-

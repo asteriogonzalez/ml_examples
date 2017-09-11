@@ -1,6 +1,5 @@
 """Some convenient functions for all exercises
 """
-# pylint: disable=C0103
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -114,13 +113,82 @@ def create_grid_around(mean, std):
     return t0, t1
 
 
-def predict(x, theta, norm=None):
-    "predict the value of a model"
-    if norm:  # model has been normalized?
-        x = reduce_feature(x, norm)
-
-    return np.dot(x, theta[1:]) + theta[0]
-
 def sigmoid(z):
     "The sigmoid function"
     return 1.0 / (1 + np.exp(-z))
+
+
+def map_feature(x1, x2, degree=1):
+    """Create a full feature vector from two sets.
+    """
+    assert np.array(x1).shape == np.array(x2).shape
+
+    # just for didactic purposes
+    # shape = (x1.size, 1)
+    # out = np.empty((x1.size, 0))
+    # for i in range(0, degree + 1):
+        # for j in range(i + 1):
+            # print "(%s, %s)" % ((i - j, j))
+            # feature = (x1 ** (i - j)) * (x2 **j)
+            # feature.shape = shape
+            # # append each new column
+            # out = np.append(out, feature, axis=1)
+
+    #  the most resilient way, no matter the data type input
+    out = [] # start with the bias term
+    for i in range(0, degree + 1):
+        for j in range(i + 1):
+            feature = (x1 ** (i - j)) * (x2 ** j)
+            out.append(feature)
+
+    out = np.array(out).T
+
+    # # slightly faster (save 1 loop and 1st is forced to 1)
+    # shape = (x1.size, 1)
+    # out = np.ones(shape) # start with the bias term
+    # for i in range(1, degree + 1):
+        # for j in range(i + 1):
+            # # print "(%s, %s)" % ((i - j, j))
+            # feature = (x1 ** (i - j)) * (x2 **j)
+            # feature.shape = shape
+            # # append each new column
+            # out = np.append(out, feature, axis=1)
+
+    return out
+
+
+def predict(theta, X):
+    "Predict the probability of a sample X of being a 'true'"
+    h = sigmoid(np.dot(X, theta))
+    p = (h >= 0.5)
+    return p
+
+
+def plot_error_evolution(trajectory, cost, *args):
+    "Plot error evolution, to see the shape"
+    error = [cost(t, *args) for t in trajectory]
+    plt.plot(error)
+    plt.ylabel('Error')
+    plt.xlabel('Iterations')
+    plt.show()
+
+
+def plot_decision_boundary(hypothesis, u, v):
+    "Plot the decision boundary where hypothesis is zero"
+    u, v = np.meshgrid(u, v)
+
+    Z = hypothesis(u, v)
+
+    # the decision boundary if where hypothesis is zero
+    # we can figure out drawing the 'zero' contour line
+    plt.contour(u, v, Z, levels=[0], linewidths=2.5,
+                colors='g', linestyles='dashed')
+
+    # draw some iso-lines, to see the shape of the solution
+    levels = range(-5, 5)
+    plt.contour(u, v, Z, levels=levels, linewidths=1.5,
+                colors='k', alpha=0.05)
+    plt.contourf(u, v, Z, levels=levels, alpha=0.05)
+
+    plt.title('Decision boundary')
+    plt.show()

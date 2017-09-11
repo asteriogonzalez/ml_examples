@@ -104,7 +104,7 @@ def plot_mesh(x, y, z):
 
 
 def create_grid_around(mean, std):
-    "Create a grid around meand and std"
+    "Create a grid around mean and std"
     wide = 1.5 * std
 
     t0 = np.linspace(mean[0] - wide[0], mean[0] + wide[0], 5)
@@ -120,3 +120,7 @@ def predict(x, theta, norm=None):
         x = reduce_feature(x, norm)
 
     return np.dot(x, theta[1:]) + theta[0]
+
+def sigmoid(z):
+    "The sigmoid function"
+    return 1.0 / (1 + np.exp(-z))

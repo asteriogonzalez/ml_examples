@@ -4,13 +4,14 @@ Andrew Ng Coursera course
 https://www.coursera.org/learn/machine-learning/home/welcome
 buy using Python instead Octave.
 """
+import math
+from pprint import pprint
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 import scipy.optimize as opt
-import math
-from pprint import pprint
 
 from aiml import *
 
@@ -81,6 +82,7 @@ def simple_logistic_regression():
     trajectory = []
 
     def retail(x):
+        "hello"
         trajectory.append(x.copy())
 
     # call optimization method

@@ -4,6 +4,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.mlab import griddata
+from scipy.optimize import minimize
 
 
 def load_XY_csv(filename):
@@ -163,6 +164,12 @@ def predict(theta, X):
     p = (h >= 0.5)
     return p
 
+def predict_multi_class(Theta, X):
+    "return the predictions for a sets"
+    h = sigmoid(X.dot(Theta))
+    p = np.argmax(h, axis=1)
+    return p
+
 
 def plot_error_evolution(trajectory, cost, *args):
     "Plot error evolution, to see the shape"
@@ -192,3 +199,97 @@ def plot_decision_boundary(hypothesis, u, v):
 
     plt.title('Decision boundary')
     plt.show()
+
+def  solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
+    """Solve Logistic Regression problems.
+
+    Define some internal functions for cost and gradient inside
+    this scope for convenience.
+
+    If theta is passed, it will be used as initial seed, other wise
+    a random seed will be generated.
+
+    X: A  matrix with: m sample x (n+1) features matrix.
+       The bias column will be expected, otherwise one will be inserted.
+    """
+
+    # def rebuilt(X, theta):
+        # """Reshape the Theta tensor in single vector suitable for
+        # optimization algorithms"""
+        # features =  X.shape[1]
+        # klasses = theta.size // features
+
+        # assert features * klasses == theta.size  # perfect fitting
+
+        # Theta = np.reshape(theta, (features, klasses))
+        # return Theta
+
+
+    def cost(theta, X, y, learning_rate=0):
+        "Compute the cost of logistic regression"
+        h = sigmoid(np.dot(X, theta))
+
+        cost = -y * np.log(h) - (1 - y) * np.log(1 - h)
+        cost = cost.sum()
+        if learning_rate > 0:  # regularization ignore bias parameter
+            theta2 = np.copy(theta)
+            theta2[0] = 0
+            reg = learning_rate * np.dot(theta2, theta2) / 2.0
+            cost += reg
+
+        cost /= y.shape[0]
+
+        # print "COST:", cost
+        return cost
+
+
+    def grad(theta, X, y, learning_rate=0):
+        "Compute the gradient of logistic regression."
+        h = sigmoid(np.dot(X, theta))
+        d = h - y
+        grad = X.T.dot(d)
+
+        if learning_rate > 0:  # regularization ignore bias parameter
+            # theta2 = np.zeros_like(theta)
+            # theta2[1:] = theta[1:]
+            theta2 = np.copy(theta)
+            theta2[0] = 0
+            reg = learning_rate * theta2
+            grad += reg
+
+        grad /= y.shape[0]
+
+        # restore same shape that minimization algorithms uses
+        # grad.shape = theta.shape
+        return grad
+
+    # save theta evolution
+    trajectory = []
+
+    def retail(x):
+        "save each step of the training"
+        # print x
+        trajectory.append(x.copy())
+
+
+    if not (X[:, 0] == 1).all():
+        raise RuntimeError("""X miss the bias term.
+        Please insert using:
+        X = np.insert(X, 0, values=np.ones(X.shape[0]), axis=1)
+        """)
+
+    # call optimization method
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+    result = minimize(
+        fun=cost,
+        x0=theta,
+        args=(X, y, learning_rate),
+        # method='TNC',
+        # method='L-BFGS-B',
+        method='BFGS',
+        jac=grad,
+        callback=retail,
+    )
+
+    theta = result.x
+    return theta, result

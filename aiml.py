@@ -285,11 +285,182 @@ def  solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
         x0=theta,
         args=(X, y, learning_rate),
         # method='TNC',
-        # method='L-BFGS-B',
-        method='BFGS',
+        # method='SLSQP',
+        method='L-BFGS-B',
+        # method='BFGS',
         jac=grad,
         callback=retail,
+        # options={'maxiter': 100000, 'disp': False}
     )
 
     theta = result.x
     return theta, result
+
+
+class FNN(object):
+    def __init__(self, sizes=None):
+        self.Theta = list()
+        self.Z = list()  # intermediate output values for each layer
+
+        if sizes:
+            self.create_netwotk(sizes)
+
+    def create_netwotk(self, sizes):
+        """Create the network structure.
+        sizes contains the number of nodes in each layer.
+
+        size[0] is the number of input features, without bias term
+        size[1] is the number of nodes (sub-features) witous bias
+        ...
+        size[n] is the number of nodes at the end, usually match with
+                the number of classes in classification problems.
+        """
+        self.Theta = list()
+        for i in range(0, len(sizes) - 1):
+            # use extended sizes with bias term for convenience
+            # but remove in the last stage
+            size = (sizes[i] + 1, sizes[i+1] + 1)
+            # create and initialize layer with random values
+            # following the advice from Andre Ng
+            epsilon = np.sqrt(6) / np.sqrt(sum(size))
+            Theta = np.random.randn(*size) * epsilon
+            self.Theta.append(Theta)
+
+        # remove the bias term in the last stage, as we
+        # haven't anything to compare with
+        self.Theta[-1] = Theta[:, 1:]
+
+        self.Z = [None] * (len(self.Theta) + 1)
+
+    def solve(self, X, y):
+        # setup optimization params
+        klasses = np.unique(y)
+        n_klasses = klasses.size
+        klasses = range(n_klasses)
+        samples, features = X.shape
+        y.shape = (samples, )
+
+        # setup the Y multiclass matrix
+        Y = np.zeros((samples, n_klasses), dtype=np.int8)
+        for i, klass in enumerate(y):
+            Y[i][klass - 1] = 1
+
+        Z = X.copy()
+        # include the bias term in previous step
+        ones = np.ones((Z.shape[0], 1))
+        Z = np.c_[ones, Z]
+        self.Z[0] = Z
+
+        errors = []
+        deltas = []
+
+        alpha = 5
+        for iteration in xrange(150):
+            self.forward()
+            self._backprop(Y, alpha)
+
+            J = self.Z[-1] - Y
+            J = (J * J).mean()
+
+            if errors and errors[-1] < J:
+                print "Reducing alpha: %f" % alpha
+                alpha /= 2.0
+            # else:
+                # alpha *= 1.1
+            errors.append(J)
+
+            delta = np.mean([d.mean() for d in self.Z])
+            deltas.append(delta)
+
+            print "[%3d] Cost: J=%f, delta=%f, alpha=%f" % \
+            (iteration, J, delta, alpha)
+
+            if delta < 1e-3 or J < 1e-5:
+                print "-End-"
+                break
+
+
+        plt.plot(errors)
+        plt.show()
+        plt.plot(deltas)
+        plt.show()
+
+        p = self.predict(X)
+        print "Accurracy: %f" % (p == y).mean()
+
+        foo = 1
+
+    def forward(self):
+        # Note  that each Theta is a matrix with the bias term included.
+        for i, Theta in enumerate(self.Theta):
+            # make the logistic regression for this layer.
+            Z = self.Z[i]
+            Z[:, 0] = 1
+            #Z = Z.dot(Theta)
+            Z = np.einsum('ab,bc->ac', Z, Theta)
+            Z = sigmoid(Z)
+            self.Z[i + 1] = Z
+        return Z
+
+    def _backprop(self, Y, alpha=1, lam=0.01):
+        batch, n_klasses = Y.shape
+
+        Z = self.Z[-1]
+        delta = Z -Y
+        der = 1
+        for i in range(len(self.Theta) - 1, -1, -1):
+            Z = self.Z[i]
+            # note we adimensionalize with batch size * n clases
+            dTheta = np.einsum('ki,kj->ij', Z, delta) / Y.size
+
+            # print 1, dTheta.mean()
+
+            # regularization parameter
+            # note we only adimensionalize with n classes
+            # as Theta don't depend on batch size
+            Theta = self.Theta[i]
+            reg = np.einsum('ab,ab->ab', Theta, Theta) / n_klasses
+            reg[0] = 0  # don't regularize bias param
+
+            # print 2, reg.mean()
+
+            dTheta += lam * reg
+
+            # update Theta
+            self.Theta[i] -= alpha * dTheta
+
+            # propagate delta
+            der = self.derivate(i + 1)
+            # delta = delta * der * Theta
+            delta = np.einsum('nj,ij->ni', delta*der, Theta)
+
+        foo = 1
+
+    def derivate(self, i):
+        "In the sigmoid case, is a straight value"
+        Z = self.Z[i]
+        return Z * (1 - Z)
+
+    def predict(self, X):
+        Z = np.insert(X, 0, values=np.ones(X.shape[0]), axis=1)
+        for i, Theta in enumerate(self.Theta):
+            # make the logistic regression for this layer.
+            Z[:, 0] = 1
+            Z = np.einsum('ab,bc->ac', Z, Theta)
+            Z = sigmoid(Z)
+
+        predict = []
+        for sample in Z:
+            i = np.argmax(sample)
+            # p = sample[i]
+            predict.append(i)
+        return predict
+
+    def cost(self, X, y):
+        p = self.predict(X)
+        e = p - y
+        return (e * e).mean()
+
+
+
+

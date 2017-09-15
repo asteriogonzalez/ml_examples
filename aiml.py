@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from matplotlib.mlab import griddata
 from scipy.optimize import minimize
 
+from timeit import timeit
+
 
 def load_XY_csv(filename):
     """Load a CSV file and prepare the X e y matrix
@@ -343,7 +345,7 @@ class FNN(object):
         # setup the Y multiclass matrix
         Y = np.zeros((samples, n_klasses), dtype=np.int8)
         for i, klass in enumerate(y):
-            Y[i][klass - 1] = 1
+            Y[i][klass] = 1
 
         Z = X.copy()
         # include the bias term in previous step
@@ -357,6 +359,10 @@ class FNN(object):
         alpha = 5
         for iteration in xrange(150):
             self.forward()
+            g1 = self._BP_gradients(X, Y)
+            g2 = self._gradients(X, Y)
+
+
             self._backprop(Y, alpha)
 
             J = self.Z[-1] - Y
@@ -392,15 +398,22 @@ class FNN(object):
 
     def forward(self):
         # Note  that each Theta is a matrix with the bias term included.
+        outputs = self._forward(self.Z[0])
+        self.Z = outputs
+        Z = outputs[-1]
+        return Z
+
+    def _forward(self, Z):
+        outputs = list()
         for i, Theta in enumerate(self.Theta):
             # make the logistic regression for this layer.
-            Z = self.Z[i]
-            Z[:, 0] = 1
-            #Z = Z.dot(Theta)
-            Z = np.einsum('ab,bc->ac', Z, Theta)
+            Z = np.insert(Z, 0, values=np.ones(Z.shape[0]), axis=1)
+            Z = Z.dot(Theta)
             Z = sigmoid(Z)
-            self.Z[i + 1] = Z
-        return Z
+            outputs.append(Z)
+
+        return outputs
+
 
     def _backprop(self, Y, alpha=1, lam=0.01):
         batch, n_klasses = Y.shape
@@ -411,18 +424,16 @@ class FNN(object):
         for i in range(len(self.Theta) - 1, -1, -1):
             Z = self.Z[i]
             # note we adimensionalize with batch size * n clases
-            dTheta = np.einsum('ki,kj->ij', Z, delta) / Y.size
-
-            # print 1, dTheta.mean()
+            # dTheta = np.einsum('ki,kj->ij', Z, delta) / Y.size
+            dTheta = Z.T.dot(delta) / delta.size
 
             # regularization parameter
             # note we only adimensionalize with n classes
             # as Theta don't depend on batch size
             Theta = self.Theta[i]
-            reg = np.einsum('ab,ab->ab', Theta, Theta) / n_klasses
+            # reg = np.einsum('ab,ab->ab', Theta, Theta) / n_klasses
+            reg = Theta * Theta / n_klasses
             reg[0] = 0  # don't regularize bias param
-
-            # print 2, reg.mean()
 
             dTheta += lam * reg
 
@@ -431,10 +442,48 @@ class FNN(object):
 
             # propagate delta
             der = self.derivate(i + 1)
-            # delta = delta * der * Theta
-            delta = np.einsum('nj,ij->ni', delta*der, Theta)
+            delta = delta * der
+            # delta = np.einsum('nj,ij->ni', delta, Theta)
+            delta =  delta.dot(Theta.T)
 
         foo = 1
+
+    def _gradients(self, X, Y):
+        eps = 1e-4
+        outputs = list()
+        for Theta in self.Theta:
+            n, m = Theta.shape
+            derivate = np.empty_like(Theta)
+            for i in range(n):
+                for j in range(m):
+                    print i, j
+                    safe = Theta[i, j]
+                    Theta[i, j] = safe + eps
+                    f2 = self.cost(X, Y)
+                    Theta[i, j] = safe - eps
+                    f0 = self.cost(X, Y)
+                    derivate[i,j] = (f2 - f0) / (2 * eps)
+            outputs.append(derivate)
+
+        return outputs
+
+    def _BP_gradients(self, X, Y):
+        outputs = list()
+        Z = np.insert(X, 0, values=np.ones(X.shape[0]), axis=1)
+        for Theta in self.Theta:
+            n, m = Theta.shape
+            derivate = np.empty_like(Theta)
+            for i in range(n):
+                for j in range(m):
+                    print i, j
+                    y_j = Y[:, j]
+                    z_i = Z[:, i]
+                    derivate[i, j] = (y_j * z_i).mean()
+
+            outputs.append(derivate)
+
+        return outputs
+
 
     def derivate(self, i):
         "In the sigmoid case, is a straight value"
@@ -443,11 +492,7 @@ class FNN(object):
 
     def predict(self, X):
         Z = np.insert(X, 0, values=np.ones(X.shape[0]), axis=1)
-        for i, Theta in enumerate(self.Theta):
-            # make the logistic regression for this layer.
-            Z[:, 0] = 1
-            Z = np.einsum('ab,bc->ac', Z, Theta)
-            Z = sigmoid(Z)
+        Z = self._forward(Z)[-1]
 
         predict = []
         for sample in Z:
@@ -456,11 +501,22 @@ class FNN(object):
             predict.append(i)
         return predict
 
-    def cost(self, X, y):
-        p = self.predict(X)
-        e = p - y
-        return (e * e).mean()
+    def cost(self, X, Y, lam=1):
+        Z = self._forward(X)[-1]
+        m, _ = Z.shape
 
+        # error costs
+        J = -Y * np.log(Z) - (1 - Y) * np.log(1-Z)
+        J = J.sum()
+
+        # regularization costs
+        for Theta in self.Theta:
+            Theta = Theta.copy()
+            Theta[0] = 0
+            J += lam * (Theta * Theta).sum() / 2.0
+
+        J /= m
+        return J
 
 
 

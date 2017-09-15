@@ -209,13 +209,14 @@ def multiclass_with_FNN(load_seed=True):
     # so in this example, K=10
     X, y = data['X'], data['y']
 
-    # y[y==10] = 0  # translate label, I don't like 1-based indexes :)
     samples, features = X.shape
 
     # setup optimization params
     klasses = np.unique(y)
     n_klasses = klasses.size
     y.shape = (samples, )
+
+    y[y==10] = 0  # translate label, I don't like 1-based indexes :)
 
     learning_rate = 0.1
 
@@ -235,7 +236,7 @@ def multiclass_with_FNN(load_seed=True):
 
     # create a FNN that match the number of featurres
     # and 2 hidden layers
-    nn = FNN((features, 100, 30, n_klasses))
+    nn = FNN((features, n_klasses))
 
     nn.solve(X, y)
 

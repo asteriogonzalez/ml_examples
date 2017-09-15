@@ -302,7 +302,7 @@ def  solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
 class FNN(object):
     def __init__(self, sizes=None):
         self.Theta = list()
-        self.Z = list()  # intermediate output values for each layer
+        self.H = list()  # intermediate output values for each layer
 
         if sizes:
             self.create_netwotk(sizes)
@@ -331,8 +331,18 @@ class FNN(object):
         # remove the bias term in the last stage, as we
         # haven't anything to compare with
         self.Theta[-1] = Theta[:, 1:]
+        self.reset_Z()
 
-        self.Z = [None] * (len(self.Theta) + 1)
+    def setup(self, Theta, X=None, Y=None):
+        self.Theta = Theta
+        self.reset_Z(X)
+        if Y is not None:
+            self.Y = Y
+
+    def reset_Z(self, X=None):
+        self.H = [None] * (len(self.Theta) + 1)
+        if X is not None:
+            self.H[0] = X
 
     def solve(self, X, y):
         # setup optimization params
@@ -351,7 +361,7 @@ class FNN(object):
         # include the bias term in previous step
         ones = np.ones((Z.shape[0], 1))
         Z = np.c_[ones, Z]
-        self.Z[0] = Z
+        self.H[0] = Z
 
         errors = []
         deltas = []
@@ -365,7 +375,7 @@ class FNN(object):
 
             self._backprop(Y, alpha)
 
-            J = self.Z[-1] - Y
+            J = self.H[-1] - Y
             J = (J * J).mean()
 
             if errors and errors[-1] < J:
@@ -375,7 +385,7 @@ class FNN(object):
                 # alpha *= 1.1
             errors.append(J)
 
-            delta = np.mean([d.mean() for d in self.Z])
+            delta = np.mean([d.mean() for d in self.H])
             deltas.append(delta)
 
             print "[%3d] Cost: J=%f, delta=%f, alpha=%f" % \
@@ -398,18 +408,17 @@ class FNN(object):
 
     def forward(self):
         # Note  that each Theta is a matrix with the bias term included.
-        outputs = self._forward(self.Z[0])
-        self.Z = outputs
-        Z = outputs[-1]
-        return Z
+        self.H = self._forward(self.H[0])
+        return self.H[-1]
 
     def _forward(self, Z):
         outputs = list()
+        outputs.append(Z)
         for i, Theta in enumerate(self.Theta):
             # make the logistic regression for this layer.
             Z = np.insert(Z, 0, values=np.ones(Z.shape[0]), axis=1)
             Z = Z.dot(Theta)
-            Z = sigmoid(Z)
+            Z = sigmoid(Z)   # Z --> H
             outputs.append(Z)
 
         return outputs
@@ -418,11 +427,11 @@ class FNN(object):
     def _backprop(self, Y, alpha=1, lam=0.01):
         batch, n_klasses = Y.shape
 
-        Z = self.Z[-1]
+        Z = self.H[-1]
         delta = Z -Y
         der = 1
         for i in range(len(self.Theta) - 1, -1, -1):
-            Z = self.Z[i]
+            Z = self.H[i]
             # note we adimensionalize with batch size * n clases
             # dTheta = np.einsum('ki,kj->ij', Z, delta) / Y.size
             dTheta = Z.T.dot(delta) / delta.size
@@ -464,30 +473,30 @@ class FNN(object):
                     f0 = self.cost(X, Y)
                     derivate[i,j] = (f2 - f0) / (2 * eps)
             outputs.append(derivate)
+            break  # agp
 
         return outputs
 
     def _BP_gradients(self, X, Y):
         outputs = list()
-        Z = np.insert(X, 0, values=np.ones(X.shape[0]), axis=1)
-        for Theta in self.Theta:
-            n, m = Theta.shape
-            derivate = np.empty_like(Theta)
-            for i in range(n):
-                for j in range(m):
-                    print i, j
-                    y_j = Y[:, j]
-                    z_i = Z[:, i]
-                    derivate[i, j] = (y_j * z_i).mean()
+        dd = self.H[-1] - Y
+        m = X.shape[0]
+        for i in reversed(range(len(self.Theta))):
+            H = self.H[i]
+            # dTheta = H.dot(dd)
+            dTheta = np.einsum('ni,nj->nij', H, dd)
+            dTheta = np.sum(dTheta, axis=0) / m
+            outputs.append(dTheta)
 
-            outputs.append(derivate)
+            Theta = self.Theta[i][1:]  # remove bias term
+            dd = dd.dot(Theta.T) * H * (1 - H)
 
         return outputs
 
 
     def derivate(self, i):
         "In the sigmoid case, is a straight value"
-        Z = self.Z[i]
+        Z = self.H[i]
         return Z * (1 - Z)
 
     def predict(self, X):
@@ -501,7 +510,7 @@ class FNN(object):
             predict.append(i)
         return predict
 
-    def cost(self, X, Y, lam=1):
+    def cost(self, X, Y, lam=0):
         Z = self._forward(X)[-1]
         m, _ = Z.shape
 

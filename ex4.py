@@ -4,7 +4,7 @@ Andrew Ng Coursera course
 https://www.coursera.org/learn/machine-learning/home/welcome
 buy using Python instead Octave.
 """
-import os
+from os import path
 import random
 from pprint import pprint
 
@@ -14,13 +14,29 @@ from matplotlib import cm
 from mpl_toolkits.mplot3d import Axes3D
 import scipy.optimize as opt
 from scipy.optimize import minimize
-from scipy.io import loadmat
+from scipy.io import loadmat, savemat
 
 from aiml import *
 
-FILE_SEED = 'Theta.npy'
 
-def test_FFN():
+FILE_SEED = 'cache_%s.mat' % path.splitext(path.basename(__file__))[0]
+cache = dict()
+def safe_step(key, function, *args, **kw):
+    global cache
+    if not cache and path.exists(FILE_SEED):
+        cache = loadmat(FILE_SEED)
+
+    if key in cache:
+        return cache[key]
+    val = function(*args, **kw)
+    cache[key] = val
+    savemat(FILE_SEED, cache, appendmat=False,
+           long_field_names=True, do_compression=True)
+
+    print 'saved %s' % key
+    return val
+
+def test_FFN(load_data=True):
     # the code is pretty similar
     data = loadmat('ex4weights.mat')
     Theta = [data['Theta1'], data['Theta2']]
@@ -51,6 +67,13 @@ def test_FFN():
 
 
     nn.cost(X, Y)
+
+    grad_numerical = safe_step('grad_numerical', nn._gradients, X, Y)
+
+    nn.setup(Theta, X, Y)
+    nn.forward()
+    grad_back_prop = safe_step('grad_back_prop', nn._BP_gradients, X, Y)
+
     foo = 1
 
 

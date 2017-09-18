@@ -46,7 +46,7 @@ def multiclass_logistic_regression_k_problems(load_seed=True):
     # don't forget the bias term for each klass
     Theta = np.random.randn(1 + features, n_klasses)
     Theta[0] = 1  # the bias term
-    X = np.insert(X, 0, values=np.ones(samples), axis=1)
+    H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
     y.shape = (samples, )
 
     # we solve (k) simple problems, using different
@@ -151,7 +151,7 @@ def multiclass_logistic_regression_single_problem(load_seed=True):
     # don't forget the bias term for each klass
     Theta = np.random.randn(1 + features, n_klasses)
     Theta[0] = 1  # the bias term
-    X = np.insert(X, 0, values=np.ones(samples), axis=1)
+    H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
     y.shape = (samples, )
 
     # setup the Y multiclass matrix

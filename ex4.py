@@ -6,6 +6,7 @@ buy using Python instead Octave.
 """
 from os import path
 import random
+import time
 from pprint import pprint
 
 import numpy as np
@@ -19,19 +20,24 @@ from scipy.io import loadmat, savemat
 from aiml import *
 
 
-FILE_SEED = 'cache_%s.mat' % path.splitext(path.basename(__file__))[0]
+FILE_SEED = 'cache_%s.npz' % path.splitext(path.basename(__file__))[0]
 cache = dict()
 def safe_step(key, function, *args, **kw):
     global cache
     if not cache and path.exists(FILE_SEED):
-        cache = loadmat(FILE_SEED)
+        npz = np.load(FILE_SEED)
+        cache = npz['cache'].item()
 
     if key in cache:
         return cache[key]
+    t0 = time.time()
     val = function(*args, **kw)
+    elapsed = time.time() - t0
+    print ">> [%s]: %f secs" % (key, elapsed)
     cache[key] = val
-    savemat(FILE_SEED, cache, appendmat=False,
-           long_field_names=True, do_compression=True)
+    # savemat(FILE_SEED, cache, appendmat=False,
+            # long_field_names=True, do_compression=True)
+    np.savez_compressed(FILE_SEED, cache=cache )
 
     print 'saved %s' % key
     return val
@@ -43,7 +49,7 @@ def test_FFN(load_data=True):
 
     for i, Z in enumerate(Theta):
         Z = Z.T
-        # Z = np.insert(Z, 0, values=np.ones(Z.shape[0]), axis=1)
+        # Z = np.insert(X, 0, values=1, axis=len(Z.shape) > 1)  # axis 0 or 1
         Theta[i] = Z
 
     nn = FNN()
@@ -66,13 +72,31 @@ def test_FFN(load_data=True):
         Y[i][klass - 1] = 1
 
 
-    nn.cost(X, Y)
+    # nn.cost(X, Y)
 
-    grad_numerical = safe_step('grad_numerical', nn._gradients, X, Y)
+    X = X[0]
+    Y = Y[0]
+    # layers = [t.shape[0] - 1 for t in Theta]
+    # layers.append(10)
+    # nn.create_netwotk(*layers)
 
     nn.setup(Theta, X, Y)
-    nn.forward()
-    grad_back_prop = safe_step('grad_back_prop', nn._BP_gradients, X, Y)
+    H = nn.forward(X)
+
+    grad_numerical = safe_step('grad_numerical', nn._gradients, X, Y)
+    # grad_back_prop = nn._BP_gradients()
+    grad_back_prop = safe_step('grad_back_prop', nn._BP_gradients)
+
+
+
+    g0 = grad_numerical
+    g1 = grad_back_prop
+
+    error = g1 - g0
+
+    for i, e in enumerate(error):
+        print 'Grad: %d\t%s\tdiff error: %f' % (i, e.shape, e[i].mean())
+
 
     foo = 1
 

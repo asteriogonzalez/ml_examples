@@ -299,6 +299,17 @@ def  solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
     return theta, result
 
 
+def strip_bias(H):
+    if len(H.shape) > 1:
+        return H[-1][:, 1:]
+    return H[1:]
+
+def num_samples(H):
+    if len(H.shape) > 1:
+        return H.shape[0]
+    return 1
+
+
 class FNN(object):
     def __init__(self, sizes=None):
         self.Theta = list()
@@ -307,7 +318,7 @@ class FNN(object):
         if sizes:
             self.create_netwotk(sizes)
 
-    def create_netwotk(self, sizes):
+    def create_netwotk(self, *sizes):
         """Create the network structure.
         sizes contains the number of nodes in each layer.
 
@@ -331,18 +342,20 @@ class FNN(object):
         # remove the bias term in the last stage, as we
         # haven't anything to compare with
         self.Theta[-1] = Theta[:, 1:]
-        self.reset_Z()
 
-    def setup(self, Theta, X=None, Y=None):
-        self.Theta = Theta
-        self.reset_Z(X)
-        if Y is not None:
-            self.Y = Y
+    def setup(self, Theta, X, Y):
+        thetas = list()
+        for th in Theta:
+            thetas.append(np.insert(th, 0, values=0, axis=1))
+        Theta = np.array(thetas)
+        self.Theta = np.array(Theta)
 
-    def reset_Z(self, X=None):
-        self.H = [None] * (len(self.Theta) + 1)
-        if X is not None:
-            self.H[0] = X
+        H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
+        self.H = np.array(np.array(self._forward(H)))
+        self.Y = Y
+
+    def reset_H(self):
+        self.H = np.empty((len(self.Theta) + 1))
 
     def solve(self, X, y):
         # setup optimization params
@@ -406,23 +419,22 @@ class FNN(object):
 
         foo = 1
 
-    def forward(self):
-        # Note  that each Theta is a matrix with the bias term included.
-        self.H = self._forward(self.H[0])
-        return self.H[-1]
+    def forward(self, X):
+        H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
+        # Note  that each H and Theta are a marrices with the bias term included.
+        self.H = self._forward(H)
+        return strip_bias(self.H[-1])
 
-    def _forward(self, Z):
-        outputs = list()
-        outputs.append(Z)
+    def _forward(self, H):
+        outputs = [H]
         for i, Theta in enumerate(self.Theta):
             # make the logistic regression for this layer.
-            Z = np.insert(Z, 0, values=np.ones(Z.shape[0]), axis=1)
-            Z = Z.dot(Theta)
-            Z = sigmoid(Z)   # Z --> H
-            outputs.append(Z)
+            Z = H.dot(Theta)
+            H = sigmoid(Z)   # Z --> H
+            # H = np.insert(H, 0, values=1, axis=len(H.shape) > 1)  # axis 0 or 1
+            outputs.append(H)
 
         return outputs
-
 
     def _backprop(self, Y, alpha=1, lam=0.01):
         batch, n_klasses = Y.shape
@@ -464,8 +476,8 @@ class FNN(object):
             n, m = Theta.shape
             derivate = np.empty_like(Theta)
             for i in range(n):
+                print i
                 for j in range(m):
-                    print i, j
                     safe = Theta[i, j]
                     Theta[i, j] = safe + eps
                     f2 = self.cost(X, Y)
@@ -473,25 +485,40 @@ class FNN(object):
                     f0 = self.cost(X, Y)
                     derivate[i,j] = (f2 - f0) / (2 * eps)
             outputs.append(derivate)
-            break  # agp
 
-        return outputs
+        return np.array(outputs)
 
-    def _BP_gradients(self, X, Y):
+    def _BP_gradients(self):
+        self._d_show_info()
         outputs = list()
-        dd = self.H[-1] - Y
-        m = X.shape[0]
+        dd = strip_bias(self.H[-1]) - self.Y
+        # dd = np.insert(dd, 0, values=np.ones(dd.shape[0]), axis=1)
+        # m = dd.shape[0] if len(dd.shape) > 1 else 1
         for i in reversed(range(len(self.Theta))):
-            H = self.H[i]
+            # H = strip_bias(self.H[i])
+            H = (self.H[i])
             # dTheta = H.dot(dd)
-            dTheta = np.einsum('ni,nj->nij', H, dd)
-            dTheta = np.sum(dTheta, axis=0) / m
+             # dTheta= np.outer(H, dd.T)
+            #dTheta = np.einsum('ni,nj->nij', H, dd)
+            dTheta = np.einsum('...i,...j->...ij', H, dd)
+            if len(dTheta.shape) > 2:
+                dTheta = np.average(dTheta, axis=0)
             outputs.append(dTheta)
 
-            Theta = self.Theta[i][1:]  # remove bias term
-            dd = dd.dot(Theta.T) * H * (1 - H)
+            # Theta = self.Theta[i][1:]  # remove bias term
+            Theta = self.Theta[i][0:]  # don't remove bias term
 
-        return outputs
+            dd = dd.dot(Theta.T) * H * (1 - H)
+            # dd[0] is always zero!, maybe we don't need to strip
+            # and dTheta[0] is always a zero row
+            dd = strip_bias(dd)
+
+        outputs.reverse()
+
+        # DONE: use TT = np.array(self.Thetas)
+        # DONE: and DT = np.array(outpus)
+        # DONE: then is easy to appy: TT = TT + DT in all matrices
+        return np.array(outputs)
 
 
     def derivate(self, i):
@@ -500,7 +527,7 @@ class FNN(object):
         return Z * (1 - Z)
 
     def predict(self, X):
-        Z = np.insert(X, 0, values=np.ones(X.shape[0]), axis=1)
+        Z = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
         Z = self._forward(Z)[-1]
 
         predict = []
@@ -511,11 +538,11 @@ class FNN(object):
         return predict
 
     def cost(self, X, Y, lam=0):
-        Z = self._forward(X)[-1]
-        m, _ = Z.shape
+        H = self.forward(X)
+        m = num_samples(Y)
 
         # error costs
-        J = -Y * np.log(Z) - (1 - Y) * np.log(1-Z)
+        J = -Y * np.log(H) - (1 - Y) * np.log(1-H)
         J = J.sum()
 
         # regularization costs
@@ -526,6 +553,18 @@ class FNN(object):
 
         J /= m
         return J
+
+    def _d_show_info(self):
+        for i, H in enumerate(self.H):
+            if i < len(self.Theta):
+                Theta = self.Theta[i]
+                print 'H%i: %s\t-->\tT%i: %s' % (i, H.shape, i, Theta.shape)
+            else:
+                print 'H%i: %s' % (i, H.shape)
+
+
+        foo = 1
+
 
 
 

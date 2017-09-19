@@ -373,7 +373,7 @@ class FNN(object):
     def reset_H(self):
         self.H = np.empty((len(self.Theta) + 1))
 
-    def solve(self, X, y, alpha=0.9, lam=0.0):
+    def solve(self, X, y, alpha=0.5, lam=0.0):
         self.X = X
         # setup optimization params
         klasses = np.unique(y)
@@ -396,34 +396,29 @@ class FNN(object):
         yy = Y[sample]
 
         H = self.H[0]
-        for iteration in xrange(999):
+        last_acc = 0.0
+        for iteration in xrange(9999):
             self.forward(X)
             J = self._cost(lam)
-            self._backprop(alpha)
-
-            # predict = self.Hs[-1][sample]
-            # print predict
-
-            if errors and errors[-1] < J:
-                print "Reducing alpha: %f" % alpha
-                alpha /= 2.0
-            # else:
-                # alpha *= 1.1
-            errors.append(J)
+            self._backprop(alpha, lam)
 
             delta = np.mean([d.mean() for d in self.H])
-            deltas.append(delta)
-
-            print "[%3d] Cost: J=%s, delta=%s, alpha=%f" % \
-            (iteration, J, delta, alpha)
-
             if delta < 1e-3 or J < 1e-5:
                 print "-End-"
                 break
 
             if not(iteration % 10):
                 p = self.predict(X)
-                print "[%3d] Accurracy: %f" % (iteration, (p == y).mean())
+                acc =  (p == y).mean()
+
+                print "[%4d] Accurracy: %f, Cost: J=%s, delta=%s, alpha=%f" % \
+                              (iteration, acc, J, delta, alpha)
+
+                deltas.append(delta)
+                errors.append(J)
+                if acc <= last_acc:
+                    print "Max Accurracy: %f : STOP" % last_acc
+                    break
 
 
         f, (ax0, ax1)= plt.subplots(2, sharex=True)
@@ -466,7 +461,7 @@ class FNN(object):
         self.H = H[:, 1:]
 
     def _backprop(self, alpha=1, lam=0.01):
-        grads = self._BP_gradients()
+        grads = self._BP_gradients(lam)
         # grads = self._gradients(self.X, self.Y)
         self.Theta -= alpha * grads
         foo = 1
@@ -491,7 +486,7 @@ class FNN(object):
 
         return np.array(outputs)
 
-    def _BP_gradients(self, lamb=0.0):
+    def _BP_gradients(self, lam=0.0):
         outputs = list()
         dd = self.H - self.Y
         for i in reversed(range(len(self.Theta))):
@@ -529,6 +524,18 @@ class FNN(object):
             # TODO: implement regularization, here or in a new function
 
         outputs.reverse()
+        outputs = np.array(outputs)
+
+        # regularization
+        if lam > 0.0:
+            m = self.Y.shape[0]
+            Theta = np.copy(self.Theta)
+            for th in Theta:
+                th[0] = 0
+
+            outputs += Theta * lam / m
+
+
 
         return np.array(outputs)
 

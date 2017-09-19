@@ -212,9 +212,9 @@ def check_bp():
     assert np.mean(nn.Zs[2][:, 1:] - z2) < 1e-8
     assert np.abs(J-cost) < 1e-8
 
-    nn._backprop()
+    nn._backprop(lam=2.25)
 
-    nn.solve(X, y)
+    nn.solve(X, y, alpha=1.0, lam=0.0)
 
 
     foo = 1

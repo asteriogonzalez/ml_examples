@@ -391,13 +391,14 @@ class FNN(object):
 
         errors = []
         deltas = []
+        accuracy = []
 
         sample = 3000
         yy = Y[sample]
 
         H = self.H[0]
         last_acc = 0.0
-        for iteration in xrange(9999):
+        for iteration in xrange(10**4):
             self.forward(X)
             J = self._cost(lam)
             self._backprop(alpha, lam)
@@ -411,9 +412,10 @@ class FNN(object):
                 p = self.predict(X)
                 acc =  (p == y).mean()
 
-                print "[%4d] Accurracy: %f, Cost: J=%s, delta=%s, alpha=%f" % \
-                              (iteration, acc, J, delta, alpha)
+                print "[%4d] Accurracy: %s, Cost: J=%s" % \
+                              (iteration, acc, J)
 
+                accuracy.append(acc)
                 deltas.append(delta)
                 errors.append(J)
                 if acc <= last_acc:
@@ -421,11 +423,13 @@ class FNN(object):
                     break
 
 
-        f, (ax0, ax1)= plt.subplots(2, sharex=True)
+        f, (ax0, ax1, ax2)= plt.subplots(3, sharex=True)
         ax0.plot(errors)
-        ax1.plot(deltas)
+        ax1.plot(accuracy)
+        ax2.plot(deltas)
         ax0.set_title('Error J')
-        ax1.set_title('H evolution')
+        ax1.set_title('Accurracy')
+        ax2.set_title('H evolution')
         plt.show()
 
         predict = self.Hs[-1][sample]

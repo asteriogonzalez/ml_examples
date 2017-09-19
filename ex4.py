@@ -35,8 +35,6 @@ def safe_step(key, function, *args, **kw):
     elapsed = time.time() - t0
     print ">> [%s]: %f secs" % (key, elapsed)
     cache[key] = val
-    # savemat(FILE_SEED, cache, appendmat=False,
-            # long_field_names=True, do_compression=True)
     np.savez_compressed(FILE_SEED, cache=cache )
 
     print 'saved %s' % key
@@ -67,26 +65,35 @@ def test_FFN(load_data=True):
 
     # y[y==10] = 0  # translate label, I don't like 1-based indexes :)
     # setup the Y multiclass matrix
+
+
+
     Y = np.zeros((samples, n_klasses), dtype=np.int8)
     for i, klass in enumerate(y):
         Y[i][klass - 1] = 1
 
 
-    # nn.cost(X, Y)
 
-    X = X[0]
-    Y = Y[0]
+    # X = X[0]
+    # Y = Y[0]
     # layers = [t.shape[0] - 1 for t in Theta]
     # layers.append(10)
     # nn.create_netwotk(*layers)
 
-    nn.setup(Theta, X, Y)
+    # Alter Theta, so is not optimized
+    for i, th in enumerate(Theta):
+        # Theta[i] = np.random.permutation(th)
+        Theta[i] = np.random.randn(*th.shape)
+
+
+    H, YY, Theta = nn.setup(X, Y, Theta)
     H = nn.forward(X)
+    error =  ((H - Y) ** 2).mean()
+    print error
 
     grad_numerical = safe_step('grad_numerical', nn._gradients, X, Y)
     # grad_back_prop = nn._BP_gradients()
     grad_back_prop = safe_step('grad_back_prop', nn._BP_gradients)
-
 
 
     g0 = grad_numerical
@@ -98,12 +105,15 @@ def test_FFN(load_data=True):
         print 'Grad: %d\t%s\tdiff error: %f' % (i, e.shape, e[i].mean())
 
 
+    # Optimize the NN from scratch
+    for i, th in enumerate(Theta):
+        Theta[i] = np.random.randn(*th.shape)
+
+
+    nn.solve(X, y)
+
+
     foo = 1
-
-
-
-
-
 
 
 def multiclass_with_FNN(load_seed=True):
@@ -150,7 +160,55 @@ def multiclass_with_FNN(load_seed=True):
 
     foo = 1
 
+def check_bp():
+    filename = 'bp_example_1.mat'
+    data = loadmat(filename)
+
+    th1 = data['initial_Theta1'].T
+    th2 = data['initial_Theta2'].T
+    grad = data['grad']
+    dth1 = grad[:th1.size].reshape(th1.shape).T
+    dth2 = grad[th1.size:].reshape(th2.shape).T
+
+    X = data['X']
+    y = data['y']
+    lam = data['lambda']
+    cost = data['cost']
+    h1 = data['h1']
+    h2 = data['h2']
+
+    first_random = data['first_random']
+
+    samples, features = X.shape
+
+    # setup optimization params
+    klasses = np.unique(y)
+    n_klasses = klasses.size
+    y.shape = (samples, )
+
+    # y[y==10] = 0  # translate label, I don't like 1-based indexes :)
+    # setup the Y multiclass matrix
+
+    Y = np.zeros((samples, n_klasses), dtype=np.int8)
+    for i, klass in enumerate(y):
+        klass = int(klass)
+        Y[i][klass - 1] = 1
+
+
+    Theta = [th1, th2]
+    nn = FNN()
+    nn.setup(X, Y, Theta)
+    H = nn.H[0]
+    nn.H = nn._forward(H)
+    J = nn._cost(lam)
+    nn._backprop(alpha)
+
+
+
+
+    foo = 1
 
 if __name__ == '__main__':
-    test_FFN()
-    multiclass_with_FNN(False)
+    check_bp()
+    # test_FFN()
+    # multiclass_with_FNN(False)

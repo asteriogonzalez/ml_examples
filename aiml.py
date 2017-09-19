@@ -8,6 +8,8 @@ from scipy.optimize import minimize
 
 from timeit import timeit
 
+# TODO: check the extra column in Thea when Theta is optimized and from scartch
+# TODO: BP with regularization
 
 def load_XY_csv(filename):
     """Load a CSV file and prepare the X e y matrix
@@ -301,7 +303,7 @@ def  solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
 
 def strip_bias(H):
     if len(H.shape) > 1:
-        return H[-1][:, 1:]
+        return H[:, 1:]
     return H[1:]
 
 def num_samples(H):
@@ -343,21 +345,29 @@ class FNN(object):
         # haven't anything to compare with
         self.Theta[-1] = Theta[:, 1:]
 
-    def setup(self, Theta, X, Y):
-        thetas = list()
-        for th in Theta:
-            thetas.append(np.insert(th, 0, values=0, axis=1))
-        Theta = np.array(thetas)
-        self.Theta = np.array(Theta)
+    def setup(self, X, Y, Theta=None):
+        if Theta is not None:
+            M = 1e6
+            for i, th in enumerate(Theta):
+                Theta[i] = np.insert(th, 0, values=M, axis=1)  # axis 0 or 1
+
+            # use np arrays for update all Thetas at the same time
+            self.Theta = np.array(Theta)
 
         H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
-        self.H = np.array(np.array(self._forward(H)))
+        self.H = self._forward(H)  # to compute the right shapes
+
+        # add the backprop bias term for speed up
+        Y = np.insert(Y, 0, values=1, axis=len(Y.shape) > 1)  # axis 0 or 1
         self.Y = Y
+
+        return self.H, self.Y, self.Theta
 
     def reset_H(self):
         self.H = np.empty((len(self.Theta) + 1))
 
-    def solve(self, X, y):
+    def solve(self, X, y, alpha=0.001, lam=0.0):
+        self.X = X
         # setup optimization params
         klasses = np.unique(y)
         n_klasses = klasses.size
@@ -368,28 +378,24 @@ class FNN(object):
         # setup the Y multiclass matrix
         Y = np.zeros((samples, n_klasses), dtype=np.int8)
         for i, klass in enumerate(y):
-            Y[i][klass] = 1
+            Y[i][klass - 1] = 1
 
-        Z = X.copy()
-        # include the bias term in previous step
-        ones = np.ones((Z.shape[0], 1))
-        Z = np.c_[ones, Z]
-        self.H[0] = Z
+        self.setup(X, Y)
 
         errors = []
         deltas = []
 
-        alpha = 5
+        sample = 3000
+        yy = Y[sample]
+
+        H = self.H[0]
         for iteration in xrange(150):
-            self.forward()
-            g1 = self._BP_gradients(X, Y)
-            g2 = self._gradients(X, Y)
+            self.H = self._forward(H)
+            J = self._cost(lam)
+            self._backprop(alpha)
 
-
-            self._backprop(Y, alpha)
-
-            J = self.H[-1] - Y
-            J = (J * J).mean()
+            predict = self.H[-1][sample]
+            print predict
 
             if errors and errors[-1] < J:
                 print "Reducing alpha: %f" % alpha
@@ -401,29 +407,28 @@ class FNN(object):
             delta = np.mean([d.mean() for d in self.H])
             deltas.append(delta)
 
-            print "[%3d] Cost: J=%f, delta=%f, alpha=%f" % \
+            print "[%3d] Cost: J=%s, delta=%s, alpha=%f" % \
             (iteration, J, delta, alpha)
 
             if delta < 1e-3 or J < 1e-5:
                 print "-End-"
                 break
 
-
-        plt.plot(errors)
-        plt.show()
-        plt.plot(deltas)
+        f, (ax0, ax1)= plt.subplots(2, sharex=True)
+        ax0.plot(errors)
+        ax1.plot(deltas)
+        ax0.set_title('Error J')
+        ax1.set_title('H evolution')
         plt.show()
 
         p = self.predict(X)
         print "Accurracy: %f" % (p == y).mean()
 
-        foo = 1
-
     def forward(self, X):
         H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
         # Note  that each H and Theta are a marrices with the bias term included.
-        self.H = self._forward(H)
-        return strip_bias(self.H[-1])
+        H = self._forward(H)
+        return strip_bias(H[-1])
 
     def _forward(self, H):
         outputs = [H]
@@ -431,42 +436,14 @@ class FNN(object):
             # make the logistic regression for this layer.
             Z = H.dot(Theta)
             H = sigmoid(Z)   # Z --> H
-            # H = np.insert(H, 0, values=1, axis=len(H.shape) > 1)  # axis 0 or 1
             outputs.append(H)
 
         return outputs
 
-    def _backprop(self, Y, alpha=1, lam=0.01):
-        batch, n_klasses = Y.shape
-
-        Z = self.H[-1]
-        delta = Z -Y
-        der = 1
-        for i in range(len(self.Theta) - 1, -1, -1):
-            Z = self.H[i]
-            # note we adimensionalize with batch size * n clases
-            # dTheta = np.einsum('ki,kj->ij', Z, delta) / Y.size
-            dTheta = Z.T.dot(delta) / delta.size
-
-            # regularization parameter
-            # note we only adimensionalize with n classes
-            # as Theta don't depend on batch size
-            Theta = self.Theta[i]
-            # reg = np.einsum('ab,ab->ab', Theta, Theta) / n_klasses
-            reg = Theta * Theta / n_klasses
-            reg[0] = 0  # don't regularize bias param
-
-            dTheta += lam * reg
-
-            # update Theta
-            self.Theta[i] -= alpha * dTheta
-
-            # propagate delta
-            der = self.derivate(i + 1)
-            delta = delta * der
-            # delta = np.einsum('nj,ij->ni', delta, Theta)
-            delta =  delta.dot(Theta.T)
-
+    def _backprop(self, alpha=1, lam=0.01):
+        grads = self._BP_gradients()
+        # grads = self._gradients(self.X, self.Y)
+        self.Theta -= alpha * grads
         foo = 1
 
     def _gradients(self, X, Y):
@@ -484,40 +461,36 @@ class FNN(object):
                     Theta[i, j] = safe - eps
                     f0 = self.cost(X, Y)
                     derivate[i,j] = (f2 - f0) / (2 * eps)
+
             outputs.append(derivate)
 
         return np.array(outputs)
 
-    def _BP_gradients(self):
-        self._d_show_info()
+    def _BP_gradients(self, lamb=0.0):
         outputs = list()
-        dd = strip_bias(self.H[-1]) - self.Y
-        # dd = np.insert(dd, 0, values=np.ones(dd.shape[0]), axis=1)
-        # m = dd.shape[0] if len(dd.shape) > 1 else 1
+        dd = self.H[-1] - self.Y
         for i in reversed(range(len(self.Theta))):
-            # H = strip_bias(self.H[i])
             H = (self.H[i])
-            # dTheta = H.dot(dd)
-             # dTheta= np.outer(H, dd.T)
-            #dTheta = np.einsum('ni,nj->nij', H, dd)
+            # TODO: try a faster implementation using np directly
+            # TODO: instead of einsum (for tensors H, not single vector)
             dTheta = np.einsum('...i,...j->...ij', H, dd)
             if len(dTheta.shape) > 2:
                 dTheta = np.average(dTheta, axis=0)
             outputs.append(dTheta)
 
-            # Theta = self.Theta[i][1:]  # remove bias term
-            Theta = self.Theta[i][0:]  # don't remove bias term
-
+            Theta = self.Theta[i]
             dd = dd.dot(Theta.T) * H * (1 - H)
-            # dd[0] is always zero!, maybe we don't need to strip
-            # and dTheta[0] is always a zero row
-            dd = strip_bias(dd)
+            # NOTE: dd[0] is always zero, so I implement a version with
+            # NOTE: extended Theta columns to avoid insert new columns
+            # NOTE: and row inside loops, in order to find a full
+            # NOTE: verctorized backprop algorithm without loops
+            # NOTE: see BP in a full connected layer without loops
+            # https://iamtrask.github.io/2015/07/12/basic-python-network/
+
+            # TODO: implement regularization, here or in a new function
 
         outputs.reverse()
 
-        # DONE: use TT = np.array(self.Thetas)
-        # DONE: and DT = np.array(outpus)
-        # DONE: then is easy to appy: TT = TT + DT in all matrices
         return np.array(outputs)
 
 
@@ -527,28 +500,36 @@ class FNN(object):
         return Z * (1 - Z)
 
     def predict(self, X):
-        Z = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
-        Z = self._forward(Z)[-1]
-
+        H = self.forward(X)
         predict = []
-        for sample in Z:
+        for sample in H:
             i = np.argmax(sample)
             # p = sample[i]
             predict.append(i)
         return predict
 
     def cost(self, X, Y, lam=0):
-        H = self.forward(X)
+        self.forward(X)
+        return self._cost(lam)
+
+    def _cost(self, lam=0):
+        H = self.H[-1]
+        Y = self.Y
+        assert H.shape == Y.shape
         m = num_samples(Y)
 
         # error costs
         J = -Y * np.log(H) - (1 - Y) * np.log(1-H)
+        J = (H - Y) ** 2
         J = J.sum()
+
 
         # regularization costs
         for Theta in self.Theta:
             Theta = Theta.copy()
+            # TODO: review what happens if we don't clear
             Theta[0] = 0
+            Theta[:, 0] = 0
             J += lam * (Theta * Theta).sum() / 2.0
 
         J /= m

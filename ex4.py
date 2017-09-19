@@ -164,16 +164,24 @@ def check_bp():
     filename = 'bp_example_1.mat'
     data = loadmat(filename)
 
-    th1 = data['initial_Theta1'].T
-    th2 = data['initial_Theta2'].T
+    th1 = data['Theta1']
+    th2 = data['Theta2']
     grad = data['grad']
-    dth1 = grad[:th1.size].reshape(th1.shape).T
-    dth2 = grad[th1.size:].reshape(th2.shape).T
+    dth1 = grad[:th1.size].reshape(th1.shape)
+    dth2 = grad[th1.size:].reshape(th2.shape)
+
+    th1 = th1.T
+    th2 = th2.T
+    dth1 = dth1.T
+    dth2 = dth2.T
+
 
     X = data['X']
-    y = data['y']
+    y = data['y'].astype(np.int8)
     lam = data['lambda']
     cost = data['cost']
+    z1 = data['z1']
+    z2 = data['z2']
     h1 = data['h1']
     h2 = data['h2']
 
@@ -194,21 +202,71 @@ def check_bp():
         klass = int(klass)
         Y[i][klass - 1] = 1
 
-
     Theta = [th1, th2]
     nn = FNN()
     nn.setup(X, Y, Theta)
-    H = nn.H[0]
-    nn.H = nn._forward(H)
+    H = nn.forward(X)
     J = nn._cost(lam)
-    nn._backprop(alpha)
 
+    assert np.mean(nn.Zs[1][:, 1:] - z1) < 1e-8
+    assert np.mean(nn.Zs[2][:, 1:] - z2) < 1e-8
+    assert np.abs(J-cost) < 1e-8
 
+    nn._backprop()
+
+    nn.solve(X, y)
 
 
     foo = 1
 
+def test_speed_sigmoid():
+    relspeed = []
+    for s in range(1, 200):
+        size = (50 * s, 4 * s)
+        # size = (50 * s, 4 * s)
+        print "Size: %s" % (size, )
+        Z = np.random.randn(*size)
+        N = 120
+        i = N
+        t0 = time.time()
+        while i > 0:
+            S = sigmoid(Z)
+            S = S * (1 - S)
+            i -= 1
+        t1 = time.time()
+        e1 = t1 - t0
+        print "Sigmoid:\t%f" % e1
+
+        i = N
+        t1 = time.time()
+        while i > 0:
+            S = np.copy(Z)
+            S[:, 0] = 1
+            i -= 1
+        t2 = time.time()
+        e2 = t2 - t1
+
+        print "Copy:\t%f" % e2
+        rs = e1 / e2
+        print "Relative Speed: e1/e2: %f" % rs
+
+        relspeed.append(rs)
+        del Z
+
+    plt.plot(relspeed)
+    plt.title('Relative speed from copy to sigmoid evaluation')
+    plt.show()
+    foo = 1
+
+
+
+
+
+
+
+
 if __name__ == '__main__':
+    # test_speed_sigmoid()
     check_bp()
     # test_FFN()
     # multiclass_with_FNN(False)

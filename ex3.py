@@ -4,7 +4,7 @@ Andrew Ng Coursera course
 https://www.coursera.org/learn/machine-learning/home/welcome
 buy using Python instead Octave.
 """
-import os
+from os import path
 import random
 from pprint import pprint
 
@@ -18,10 +18,13 @@ from scipy.io import loadmat
 
 from aiml import *
 
-FILE_SEED = 'Theta.npy'
+CHECKPOINT_FILE = 'cache_%s' % path.splitext(path.basename(__file__))[0]
 
-def multiclass_logistic_regression_k_problems(load_seed=True):
+
+def multiclass_logistic_regression_k_problems(checkpoint=True):
     "Make a simple linear regression from from Andre Ng Exercise 1"
+    chp = Checkpoint(CHECKPOINT_FILE + '.multiclass')
+
     # Load data from CSV
     data = loadmat('ex3data1.mat')
 
@@ -55,30 +58,31 @@ def multiclass_logistic_regression_k_problems(load_seed=True):
     learning_rate = 0.1
 
     # check if we have solved the problem before, just for fast debugging
-    if load_seed and os.path.exists(FILE_SEED):
-        Theta = np.load(FILE_SEED)
+    if checkpoint and os.path.exists(CHECKPOINT_FILE):
+        Theta = chp.load()['Theta']
     else:
         for k, klass in enumerate(klasses):
             y_i = (y == (k + 1)) * 1
             theta = Theta[:, k]
             theta, result = solve_logistic_regression(
-                X, y_i, theta, learning_rate)
+                H, y_i, theta, learning_rate)
             Theta[:, k] = theta
             print "Class %s : error: %s, %s" % (k, result.fun, result.message)
-        np.save(FILE_SEED, Theta)
+        chp.save(Theta=Theta)
 
     # Train accuracy
-    p = predict_multi_class(Theta, X)
+    p = predict_multi_class(Theta, H)
     p += 1   # y is 1-based index in the examples!
     print "Train Accuracy: %f" % (p == y).mean()
 
 
-def multiclass_logistic_regression_single_problem(load_seed=True):
+def multiclass_logistic_regression_single_problem(checkpoint=True):
     """Make a logistic regression building a single problem
     and trying to solve as a whole.
 
-    load_seed: if True, try to load the Theta solution from previous run.
+    checkpoint: if True, try to load the Theta solution from previous run.
     """
+    chp = Checkpoint(CHECKPOINT_FILE + '.singleclass')
 
     def rebuilt(X, theta):
         """Reshape the Theta tensor in single vector suitable for
@@ -92,25 +96,29 @@ def multiclass_logistic_regression_single_problem(load_seed=True):
         return Theta
 
 
-    def cost(theta, X, Y, lam=0):
+    def cost(theta, X, Y, lamb=0):
         "Compute the cost of logistic regression"
-        Theta = rebuilt(X, theta)
-        h = sigmoid(np.dot(X, Theta))
+        H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
+
+        Theta = rebuilt(H, theta)
+        h = sigmoid(np.dot(H, Theta))
 
         cost = -Y * np.log(h) - (1 - Y) * np.log(1 - h)
         cost = cost.sum()
-        if lam > 0:  # regularization ignore bias parameter
+        if lamb > 0:  # regularization ignore bias parameter
             theta2 = np.copy(theta)
             theta2[0] = 0
-            reg = lam * np.dot(theta2, theta2) / 2.0
+            reg = lamb * np.dot(theta2, theta2) / 2.0
             cost += reg
 
         cost /= Y.shape[0]
         return cost
 
 
-    def grad(theta, X, Y, lam=0):
+    def grad(theta, X, Y, lamb=0):
         "Compute the gradient of logistic regression."
+        X = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
+
         n = Y.shape[0]
 
         Theta = rebuilt(X, theta)
@@ -119,12 +127,12 @@ def multiclass_logistic_regression_single_problem(load_seed=True):
         d = H - Y
         grad = X.T.dot(d)
 
-        if lam > 0:  # regularization ignore bias parameter
+        if lamb > 0:  # regularization ignore bias parameter
             # theta2 = np.zeros_like(theta)
             # theta2[1:] = theta[1:]
             Theta2 = np.copy(Theta)
             Theta2[0] = 0
-            reg = lam * Theta2
+            reg = lamb * Theta2
             grad += reg
 
         grad /= n
@@ -172,8 +180,8 @@ def multiclass_logistic_regression_single_problem(load_seed=True):
         # print "Train Accuracy: %f" % (p == y).mean()
         trajectory.append(theta.copy())
 
-    if load_seed and os.path.exists(FILE_SEED):
-        Theta = np.load(FILE_SEED)
+    if checkpoint and os.path.exists(CHECKPOINT_FILE):
+        Theta = np.load(CHECKPOINT_FILE)
 
     shape = Theta.shape
 
@@ -194,11 +202,11 @@ def multiclass_logistic_regression_single_problem(load_seed=True):
     Theta = result.x
     Theta.shape = shape
     # Train accuracy
-    p = predict_multi_class(Theta, X)
+    p = predict_multi_class(Theta, H)
     p += 1   # y is 1-based index in the examples!
     print "Train Accuracy: %f" % (p == y).mean()
 
-def multiclass_with_FNN(load_seed=True):
+def multiclass_with_FNN(checkpoint=True):
     "Similar to Logistic Regression, but using FNN to solve the problem"
 
     # the code is pretty similar
@@ -208,15 +216,10 @@ def multiclass_with_FNN(load_seed=True):
     # y: 5000 class belonging vector from 1 to 10 (1-index based!)
     # so in this example, K=10
     X, y = data['X'], data['y']
+    Y, mapping = expand_labels(y)
 
     samples, features = X.shape
-
-    # setup optimization params
-    klasses = np.unique(y)
-    n_klasses = klasses.size
-    y.shape = (samples, )
-
-    y[y==10] = 0  # translate label, I don't like 1-based indexes :)
+    n_klasses = len(mapping)
 
     learning_rate = 0.1
 
@@ -231,19 +234,17 @@ def multiclass_with_FNN(load_seed=True):
         # print "Train Accuracy: %f" % (p == y).mean()
         trajectory.append(theta.copy())
 
-    if load_seed and os.path.exists(FILE_SEED):
-        Theta = np.load(FILE_SEED)
+    if checkpoint and os.path.exists(CHECKPOINT_FILE):
+        Theta = np.load(CHECKPOINT_FILE)
 
     # create a FNN that match the number of featurres
     # and 2 hidden layers
     nn = FNN((features, n_klasses))
 
-    nn.solve(X, y)
-
-    foo = 1
+    nn.solve(X, y, checkpoint='multiclass_with_FNN')
 
 
 if __name__ == '__main__':
-    # multiclass_logistic_regression_k_problems(False)
-    # multiclass_logistic_regression_single_problem(False)
-    multiclass_with_FNN(False)
+    # multiclass_logistic_regression_single_problem()
+    # multiclass_logistic_regression_k_problems()
+    multiclass_with_FNN()

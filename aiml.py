@@ -1,15 +1,50 @@
 """Some convenient functions for all exercises
 """
 
+import time
+import os
 import numpy as np
+import cPickle as pickle
+import bz2
 import matplotlib.pyplot as plt
 from matplotlib.mlab import griddata
 from scipy.optimize import minimize
 
-from timeit import timeit
+# TODO: test for checking numerical and backprop gradients
+# TODO: solve net convergence using L-BFGS-B method (or any other in 1-D form)
+# TODO: the idea is to expose the NN problems as a 1-D optimization problem.
+# TODO: check the extra column in Theta when Theta is optimized or from scratch
 
-# TODO: check the extra column in Thea when Theta is optimized and from scartch
-# TODO: BP with regularization
+class Checkpoint(dict):
+    """A simple class for saving and retrieve info
+    to continue interrupted works
+    """
+    def __init__(self, filename):
+        if not filename.startswith('chp_'):
+            filename = 'chp_' + filename
+
+        if not filename.endswith('.npz'):
+            filename += '.pbz2'
+        self.filename = filename
+
+    def save(self, **data):
+        "save the dict to disk"
+        print ">> Saving checkpoint: %s" % self.filename
+        for k, v in self.items():
+            if k not in data:
+                data[k] = v
+
+        with bz2.BZ2File(self.filename, 'wb') as f:
+            pickle.dump(data, f, protocol=2)
+
+    def load(self):
+        "load dict from disk"
+        if os.access(self.filename, os.F_OK):
+            with bz2.BZ2File(self.filename, 'rb') as f:
+                data = pickle.load(f)
+            self.update(data)
+        return self
+
 
 def load_XY_csv(filename):
     """Load a CSV file and prepare the X e y matrix
@@ -204,7 +239,7 @@ def plot_decision_boundary(hypothesis, u, v):
     plt.title('Decision boundary')
     plt.show()
 
-def  solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
+def solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
     """Solve Logistic Regression problems.
 
     Define some internal functions for cost and gradient inside
@@ -301,32 +336,150 @@ def  solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
     return theta, result
 
 
-def strip_bias(H):
-    if len(H.shape) > 1:
-        return H[:, 1:]
-    return H[1:]
+def pack(theta, matrices):
+    "pack all data contained in 1-D array into several matrices"
+    a = b = 0
+    for th in matrices:
+        b += th.size
+        th.flat = theta[a:b]   # load data into matrix, but change the shape
+        a = b
+    assert b == theta.size  # all data has been used
+
+def unpack(matrices):
+    "unroll all data contained in several matrices into a single 1-D vector"
+    return np.concatenate(
+        [th.ravel() for th in matrices]
+    )
+
+def train_neural_net(nn, X, y, learning_rate=1.0, method='L-BFGS-B',
+                     plot=True, checkpoint=None):
+    """Train a NN exposing cost and gradient functions in
+    1-D vector form, so we can use advanced methods like L-BFGS-B
+    or any other from scipy.minimize module.
+
+    nn: the neural network to train. The layers must be already configured.
+    X: the features training data set
+    y: the labels data set
+    method: minimization method to be used, L-BFGS-B by default.
+    learning_rate: the regularization parameter (lambda)
+    """
+    Y, mapping = expand_labels(y)
+
+    def cost(theta, X, Y, learning_rate=0):
+        "Compute the cost of NN"
+        pack(theta, nn.Theta)
+        cost = nn.cost(X, Y, lamb=learning_rate)
+        # print "COST:", cost
+        return cost
+
+
+    def grad(theta, X, Y, learning_rate=0):
+        "Compute the gradient of logistic regression."
+        # force forward pass
+        # cost(theta, X, Y, learning_rate)
+        # pack(theta, nn.Theta) (not necessary)
+
+        grads = nn.grad_backprop(X, Y, lamb=learning_rate)
+        grad = unpack(grads)
+        return grad
+
+    # save theta evolution
+    checkpoint.load()
+    errors = checkpoint.setdefault('error', list())
+    trajectory = checkpoint.setdefault('trajectory', list())
+    accuracy = checkpoint.setdefault('accuracy', list())
+
+    def retail(x):
+        "save each step of the training"
+        acc = nn.accuracy(X, Y)
+        trajectory.append(x.copy())
+        errors.append(nn.J)
+        accuracy.append(acc)
+        print "Accuracy: %f" % acc
+        if not len(errors) % 50:
+            checkpoint.save(Theta=nn.Theta)
+
+
+    Theta = checkpoint.get('Theta')
+    if Theta is not None:
+        nn.setup(Theta)
+
+    theta = unpack(nn.Theta)
+
+    # call optimization method
+    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+    result = minimize(
+        fun=cost,
+        x0=theta,
+        args=(X, Y, learning_rate),
+        method=method,
+        jac=grad,
+        callback=retail,
+        options={'maxiter': 100000, 'disp': False, 'gtol': 1e-3,}
+    )
+
+    theta = result.x
+
+    checkpoint.save(Theta=nn.Theta)
+    if plot:
+        # Plot evolution
+        fig, (ax0, ax1,) = plt.subplots(2, sharex=True)
+        ax0.plot(errors)
+        ax1.plot(accuracy)
+        ax0.set_title('Error J')
+        ax1.set_title('Accurracy')
+        plt.show()
+
+    return theta, result
+
+# def strip_bias(H):
+    # if len(H.shape) > 1:
+        # return H[:, 1:]
+    # return H[1:]
 
 def num_samples(H):
     if len(H.shape) > 1:
         return H.shape[0]
     return 1
 
+def expand_labels(y):
+    klasses = list(np.unique(y))
+    n_klasses = len(klasses)
+    klasses.sort()
+
+    mapping = dict()
+    for i, label in enumerate(klasses):
+        mapping[label] = i
+
+    samples = y.shape[0]
+    y.shape = (samples, )
+
+    # setup the Y multiclass matrix
+    Y = np.zeros((samples, n_klasses), dtype=np.int8)
+    for i, label in enumerate(y):
+        Y[i][mapping[label]] = 1
+
+    return Y, mapping
 
 class FNN(object):
     def __init__(self, sizes=None):
         self.Theta = list()
-        self.Z = list()  # intermediate Z output values for backprop
+        # self.Z = list()  # intermediate Z output values for backprop
         self.H = None    # the last hypothesis value
+        self.Hs = list()
+        self.X = None
+        self.Y = None
+        self.J = 0
 
         if sizes:
             self.create_netwotk(sizes)
 
-    def create_netwotk(self, *sizes):
+    def create_netwotk(self, sizes):
         """Create the network structure.
         sizes contains the number of nodes in each layer.
 
         size[0] is the number of input features, without bias term
-        size[1] is the number of nodes (sub-features) witous bias
+        size[1] is the number of nodes (sub-features) without bias
         ...
         size[n] is the number of nodes at the end, usually match with
                 the number of classes in classification problems.
@@ -335,237 +488,118 @@ class FNN(object):
         for i in range(0, len(sizes) - 1):
             # use extended sizes with bias term for convenience
             # but remove in the last stage
-            size = (sizes[i] + 1, sizes[i+1] + 1)
+            size = (sizes[i] + 1, sizes[i + 1])
             # create and initialize layer with random values
             # following the advice from Andre Ng
             epsilon = np.sqrt(6) / np.sqrt(sum(size))
             Theta = np.random.randn(*size) * epsilon
             self.Theta.append(Theta)
 
-        # remove the bias term in the last stage, as we
-        # haven't anything to compare with
-        self.Theta[-1] = Theta[:, 1:]
+    def setup(self, Theta):
+        "Setup NN parameters (Theta weigths by now)"
+        self.Theta = np.array(Theta)
 
-    def setup(self, X, Y, Theta=None):
-        if Theta is not None:
-            # add a column in Theta_i that yield a 1.0 in H_(i+1)
-            # avoiding to insert a 'one' column in all steps
-            # (searching a compact vectorized way to implement FF and BP)
-            # I don't add this colum in the last layer due some 'nan' will
-            # appears in (1-Y) * np.log(1-H)
-            # even 1-Y is zero, log(1-H) = log(0) = inf in this terms
-            # This way saves to add an extra column in Y as well
-            # M = 1e6
-            # for i in range(len(Theta) - 1):
-                # Theta[i] = np.insert(Theta[i], 0, values=M, axis=1)  # axis 0 or 1
+    def solve(self, X, y, alpha=1.0, lamb=0.1, min_accuracy=0.95, checkpoint='',
+              plot=False):
+        """Train the Net until some criteria is reached.
 
-            # use np arrays for update all Thetas at the same time
-            self.Theta = np.array(Theta)
-
-        # H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
-        # self._forward(H)  # to compute the right shapes
-
-        # add the backprop bias term for speed up
-        # (This way saves to add an extra column in Y as well, see above)
-        # Y = np.insert(Y, 0, values=1, axis=len(Y.shape) > 1)  # axis 0 or 1
-        self.Y = Y
-
-    def reset_H(self):
-        self.H = np.empty((len(self.Theta) + 1))
-
-    def solve(self, X, y, alpha=0.5, lam=0.0):
+        X: the training samples
+        y: the """
         self.X = X
-        # setup optimization params
-        klasses = np.unique(y)
-        n_klasses = klasses.size
-        klasses = range(n_klasses)
-        samples, features = X.shape
-        y.shape = (samples, )
+        Y, mapping = expand_labels(y)
 
-        # setup the Y multiclass matrix
-        Y = np.zeros((samples, n_klasses), dtype=np.int8)
-        for i, klass in enumerate(y):
-            Y[i][klass - 1] = 1
+        chp = Checkpoint(checkpoint)
 
-        self.setup(X, Y)
+        cache = chp.load()
+        if cache:
+            self.setup(cache['Theta'])
 
         errors = []
         deltas = []
         accuracy = []
 
-        sample = 3000
-        yy = Y[sample]
-
-        H = self.H[0]
         last_acc = 0.0
-        for iteration in xrange(10**4):
-            self.forward(X)
-            J = self._cost(lam)
-            self._backprop(alpha, lam)
+        last_J = float('inf')
+        i0 = cache.get('iteration', 0)
+        for iteration in xrange(i0, 10**5):
+            J = self.cost(X, Y, lamb)
+            self.backprop(X, Y, alpha, lamb)
 
-            delta = np.mean([d.mean() for d in self.H])
-            if delta < 1e-3 or J < 1e-5:
-                print "-End-"
-                break
-
-            if not(iteration % 10):
+            if not iteration % 20:
                 p = self.predict(X)
-                acc =  (p == y).mean()
-
-                print "[%4d] Accurracy: %s, Cost: J=%s" % \
-                              (iteration, acc, J)
+                acc = (p == y).mean()
+                delta = np.mean([d.mean() for d in self.H])
 
                 accuracy.append(acc)
                 deltas.append(delta)
                 errors.append(J)
-                if acc <= last_acc:
+
+                print "[%4d] Accurracy: %s, Cost: J=%s" % \
+                              (iteration, acc, J)
+
+                if round(J, 9) >= round(last_J, 9) or \
+                   delta < 1e-3 or J < 1e-5 or \
+                   acc > min_accuracy:
                     print "Max Accurracy: %f : STOP" % last_acc
                     break
 
+                if checkpoint:
+                    chp.save(
+                        Theta=self.Theta,
+                        iteration=iteration,
+                        )
+                last_acc, last_J = acc, J
 
-        f, (ax0, ax1, ax2)= plt.subplots(3, sharex=True)
-        ax0.plot(errors)
-        ax1.plot(accuracy)
-        ax2.plot(deltas)
-        ax0.set_title('Error J')
-        ax1.set_title('Accurracy')
-        ax2.set_title('H evolution')
-        plt.show()
-
-        predict = self.Hs[-1][sample]
-        print predict
-        print y[sample]
-
+        if plot:
+            # Plot evolution
+            fig, (ax0, ax1, ax2) = plt.subplots(3, sharex=True)
+            ax0.plot(errors)
+            ax1.plot(accuracy)
+            ax2.plot(deltas)
+            ax0.set_title('Error J')
+            ax1.set_title('Accurracy')
+            ax2.set_title('H evolution')
+            plt.show()
 
         p = self.predict(X)
         print "Accurracy: %f" % (p == y).mean()
 
-    def forward(self, X):
-        # H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
-        # Note  that each H and Theta are a marrices with the bias term included.
-        self._forward(X)
-        return self.H
 
-    def _forward(self, H):
-        H = np.insert(H, 0, values=1, axis=len(H.shape) > 1)  # axis 0 or 1
-        self.Zs = [H]
+    def backprop(self, X, Y, alpha=1, lamb=2):
+        grads = self.grad_backprop(X, Y, lamb)
+        self.Theta -= alpha * grads
+
+    def forward(self, X):
+        """Make the forward step, storing the value of the hypothesis
+        H in each layer for backpropagation.
+
+        I decided to store the H values (H = sigmoid(Z)) instead the Z
+        as many people do for saving computation time as coping and
+        assign 1 in a column (the bias term) is faster than evaluate the
+        sigmoid(Z) again to compute the derivate for 2nd time.
+        """
+        # initial H is X + bias term
+        H = np.insert(X, 0, values=1, axis=len(X.shape) > 1)  # axis 0 or 1
         self.Hs = [H]
-        for i, Theta in enumerate(self.Theta):
-            # make the logistic regression for this layer.
+        for Theta in self.Theta:
+            # make the logistic regression for this layer
+            # and store H values for backpropagation
             H = np.copy(H)
             H[:, 0] = 1
 
             Z = H.dot(Theta)
             Z = np.insert(Z, 0, values=1, axis=len(Z.shape) > 1)  # axis 0 or 1
 
-            H = sigmoid(Z)   # Z --> H
-            self.Hs.append(H)
-            self.Zs.append(Z)
+            H = sigmoid(Z)     # Z --> H
+            self.Hs.append(H)  # store H with all sigmoid values done
 
-        self.H = H[:, 1:]
+        self.H = H[:, 1:]  # remove the bias term in last step
+        return self.H      # return the hypothesis
 
-    def _backprop(self, alpha=1, lam=0.01):
-        grads = self._BP_gradients(lam)
-        # grads = self._gradients(self.X, self.Y)
-        self.Theta -= alpha * grads
-        foo = 1
-
-    def _gradients(self, X, Y):
-        eps = 1e-4
-        outputs = list()
-        for Theta in self.Theta:
-            n, m = Theta.shape
-            derivate = np.empty_like(Theta)
-            for i in range(n):
-                print i
-                for j in range(m):
-                    safe = Theta[i, j]
-                    Theta[i, j] = safe + eps
-                    f2 = self.cost(X, Y)
-                    Theta[i, j] = safe - eps
-                    f0 = self.cost(X, Y)
-                    derivate[i,j] = (f2 - f0) / (2 * eps)
-
-            outputs.append(derivate)
-
-        return np.array(outputs)
-
-    def _BP_gradients(self, lam=0.0):
-        outputs = list()
-        dd = self.H - self.Y
-        for i in reversed(range(len(self.Theta))):
-            H = self.Hs[i]
-            # we need to add the full bias term from dd
-            # so make a copy and overwrite the 1st column
-            H = np.copy(H)
-            H[:, 0] = 1
-            dTheta = np.einsum('...i,...j->...ij', H, dd)
-            if len(dTheta.shape) > 2:
-                dTheta = np.average(dTheta, axis=0)
-            outputs.append(dTheta)
-
-            # we can avoid the following computation
-            # in the last step
-            if i == 0:
-                break
-
-            H = self.Hs[i]
-            # sigmoid gradient
-            sigrad = H * (1 - H)
-
-            Theta = self.Theta[i]
-            dd = dd.dot(Theta.T) * sigrad
-            dd = dd[:, 1:]
-
-
-            # NOTE: dd[0] is always zero, so I implement a version with
-            # NOTE: extended Theta columns to avoid insert new columns
-            # NOTE: and row inside loops, in order to find a full
-            # NOTE: verctorized backprop algorithm without loops
-            # NOTE: see BP in a full connected layer without loops
-            # https://iamtrask.github.io/2015/07/12/basic-python-network/
-
-            # TODO: implement regularization, here or in a new function
-
-        outputs.reverse()
-        outputs = np.array(outputs)
-
-        # regularization
-        if lam > 0.0:
-            m = self.Y.shape[0]
-            Theta = np.copy(self.Theta)
-            for th in Theta:
-                th[0] = 0
-
-            outputs += Theta * lam / m
-
-
-
-        return np.array(outputs)
-
-
-    def derivate(self, i):
-        "In the sigmoid case, is a straight value"
-        Z = self.H[i]
-        return Z * (1 - Z)
-
-    def predict(self, X):
-        H = self.forward(X)
-        predict = []
-        for sample in H:
-            i = np.argmax(sample)
-            # p = sample[i]
-            predict.append(i)
-        predict = np.array(predict) + 1
-        return predict
-
-    def cost(self, X, Y, lam=0):
+    def cost(self, X, Y, lamb=0):
+        "Compute the error cost of NN"
         self.forward(X)
-        return self._cost(lam)
-
-    def _cost(self, lam=0):
         H = self.H
-        Y = self.Y
         assert H.shape == Y.shape
         m = num_samples(Y)
 
@@ -574,29 +608,119 @@ class FNN(object):
         # J = (H - Y) ** 2
         J = np.nansum(J)
 
-
         # regularization costs
         for Theta in self.Theta:
             Theta = Theta.copy()
             # TODO: review what happens if we don't clear
             Theta[0] = 0
             Theta[:, 0] = 0
-            J += lam * (Theta * Theta).sum() / 2.0
+            J += lamb * (Theta * Theta).sum() / 2.0
 
         J /= m
+        self.J = J
         return J
 
-    def _d_show_info(self):
-        for i, H in enumerate(self.H):
-            if i < len(self.Theta):
-                Theta = self.Theta[i]
-                print 'H%i: %s\t-->\tT%i: %s' % (i, H.shape, i, Theta.shape)
-            else:
-                print 'H%i: %s' % (i, H.shape)
+    def grad_numerical(self, X, Y, lamb=0.0):
+        "Numerical gradient by central finite difference"
+        eps = 1e-4
+        outputs = list()
+        for t, Theta in enumerate(self.Theta):
+            n, m = Theta.shape
+            derivate = np.empty_like(Theta)
+            t0 = time.time()
+            for i in range(n):
+                for j in range(m):
+                    safe = Theta[i, j]
+                    Theta[i, j] = safe + eps
+                    f2 = self.cost(X, Y, lamb)
+                    Theta[i, j] = safe - eps
+                    f0 = self.cost(X, Y, lamb)
+                    derivate[i, j] = (f2 - f0) / (2 * eps)
 
+                e = time.time() - t0
+                s = e / (1 + i)
+                remain = (n - i) * s
+                eta = t0 + remain
+                eta = time.gmtime(eta)
+                eta = time.strftime("%Y-%m-%d %H:%M:%S", eta)
+                print "[%02d]: %03d/%03d eta: %s (%d secs)" % (t, i, n, eta, remain)
 
-        foo = 1
+            outputs.append(derivate)
 
+        return np.array(outputs)
+
+    def grad_backprop(self, X, Y, lamb=0.0):
+        "Compute the gradients using Back Propagation algorithm"
+        # asume that a fwd has been already done
+        # self.forward(X)
+
+        outputs = list()
+        delta = self.H - Y
+        for i in reversed(range(len(self.Theta))):
+            H = self.Hs[i]
+            # we need to add the full bias term
+            # so make a copy and overwrite the 1st column
+            H = np.copy(H)
+            H[:, 0] = 1
+            DTheta = np.einsum('...i,...j->...ij', H, delta)
+            if len(DTheta.shape) > 2:
+                # average of all gradients per sample
+                DTheta = np.average(DTheta, axis=0)
+
+            outputs.append(DTheta)
+
+            # we can avoid the rest of the computation
+            # in the last step
+            if i == 0:
+                break
+
+            # sigmoid gradient
+            H = self.Hs[i]
+            sigrad = H * (1 - H)
+
+            Theta = self.Theta[i]
+            delta = delta.dot(Theta.T) * sigrad
+            delta = delta[:, 1:]  # remove the bias
+
+        outputs.reverse()
+        outputs = np.array(outputs)
+
+        # regularization
+        if lamb > 0.0:
+            m = Y.shape[0]
+            Theta = np.copy(self.Theta)
+            for th in Theta:
+                th[0] = 0
+
+            outputs += Theta * lamb / m
+
+        return np.array(outputs)
+
+    def predict(self, X):
+        "Predict the class for several samples in X"
+        # TODO: use a vectorization form
+
+        # H = self.forward(X)  # assume that has been done
+        H = self.H
+        predict = []
+        for sample in H:
+            i = np.argmax(sample)
+            # p = sample[i]
+            predict.append(i)
+        predict = np.array(predict) + 1
+        return predict
+
+    def accuracy(self, X, Y):
+        # TODO: use a vectorization form
+        H = self.H
+        predict = np.argmax(H, axis=1)
+
+        match = 0
+        for i, guess in enumerate(predict):
+            match += Y[i, guess]
+
+        predict = float(match) / Y.shape[0]
+        return predict
 
 
 

@@ -24,15 +24,15 @@ def plot_sigmoid():
     plt.show()
 
 
-def cost(theta, X, y, lam=0):
+def cost(theta, X, y, lamb=0):
     "Compute the cost of logistic regression"
     h = sigmoid(np.dot(X, theta))  # 0 < h < 1
     cost = -y * np.log(h) - (1 - y) * np.log(1 - h)
     cost = cost.sum()
-    if lam > 0:  # regularization ignore bias parameter
+    if lamb > 0:  # regularization ignore bias parameter
         theta2 = np.copy(theta)
         theta2[0] = 0
-        reg = lam * np.dot(theta2, theta2) / 2.0
+        reg = lamb * np.dot(theta2, theta2) / 2.0
         cost += reg
 
     cost /= y.size
@@ -40,20 +40,20 @@ def cost(theta, X, y, lam=0):
     return cost
 
 
-def grad(theta, X, y, lam=0):
+def grad(theta, X, y, lamb=0):
     "Compute the gradient of logistic regression"
     h = sigmoid(np.dot(X, theta))
     d = h - y
     grad = np.dot(d, X) / y.size
 
-    if lam > 0:  # regularization ignore bias parameter
+    if lamb > 0:  # regularization ignore bias parameter
         # theta2 = np.zeros_like(theta)
         # theta2[1:] = theta[1:]
 
         theta2 = np.copy(theta)
         theta2[0] = 0
 
-        reg = lam * theta2 / y.size
+        reg = lamb * theta2 / y.size
         grad += reg
 
     return grad
@@ -131,7 +131,7 @@ def simple_logistic_regression():
     print "Train Accuracy: %f" % (p == y).mean()
 
 
-def regularized_logistic_regression(lam=1, degree=3):
+def regularized_logistic_regression(lamb=1, degree=3):
     "Make a simple linear regression from from Andre Ng Exercise 1"
     # Load data from CSV
     x, y = load_XY_csv('ex2data2.txt')
@@ -162,7 +162,7 @@ def regularized_logistic_regression(lam=1, degree=3):
         cost,
         x0=theta,
         fprime=grad,
-        args=(X, y, lam),
+        args=(X, y, lamb),
         disp=False,
         epsilon=0.001,
         callback=retail,
@@ -181,7 +181,7 @@ def regularized_logistic_regression(lam=1, degree=3):
     plot_decision_boundary(hypothesis, u, v)
 
     # plot error evolution
-    plot_error_evolution(trajectory, cost, X, y, lam)
+    plot_error_evolution(trajectory, cost, X, y, lamb)
 
     # Train accuracy
     p = predict(sol, X)
@@ -194,10 +194,10 @@ if __name__ == '__main__':
     regularized_logistic_regression()
 
     # check for params variations
-    regularized_logistic_regression(lam=0.001, degree=6)
-    regularized_logistic_regression(lam=0.001, degree=9)
-    regularized_logistic_regression(lam=0.1, degree=10)
-    regularized_logistic_regression(lam=1, degree=2)
+    regularized_logistic_regression(lamb=0.001, degree=6)
+    regularized_logistic_regression(lamb=0.001, degree=9)
+    regularized_logistic_regression(lamb=0.1, degree=10)
+    regularized_logistic_regression(lamb=1, degree=2)
 
     # high over-optimization
-    regularized_logistic_regression(lam=0.0, degree=7)
+    regularized_logistic_regression(lamb=0.0, degree=7)

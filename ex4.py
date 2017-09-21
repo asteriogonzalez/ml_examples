@@ -167,17 +167,22 @@ def test_train_nn_with_regular_min_methods():
                      checkpoint=chp)
 
 
-def test_MNIST_dataset():
+def test_MNIST_dataset_with_multimethods():
+    """Train a FNN for MNIST using different methods or combination of them:
+    e.g.
+       - GC
+       - L-BFGS-B
+       - GC for 5 iterations, L-BFGS-B for 5 iterations and so forth
+       - GC for 5 iterations, then switch to L-BFGS-B until end
+    """
     mnist = fetch_mldata('MNIST original')
     print mnist.data.shape
     print mnist.target.shape
     klasses = np.unique(mnist.target)
     n_klasses = len(klasses)
 
-    chp = Checkpoint('test_MNIST_dataset')
+    chp = NullCheckpoint('test_MNIST_dataset_with_multimethods')
 
-    layers = (28 * 28, 14 * 14, 7 * 7, 10)
-    nn = FNN(layers)
     for X, y in batch_iter(5000, mnist.data, mnist.target):
         print X.shape, y.shape
         Y, mapping = expand_labels(y, n_klasses)
@@ -185,13 +190,39 @@ def test_MNIST_dataset():
 
     del mnist
 
-    # nn.solve(X, Y)
-    # foo = 1
-    lamb = 2
-    # nn.solve(X, y, lamb=lamb, checkpoint='test.npz')
-    nn.train(X, Y, learning_rate=lamb,
-                     method='L-BFGS-B',
-                     checkpoint=chp)
+    layers = (28 * 28, 14 * 14, 7 * 7, 10)
+    layers = (28 * 28, 10 * 10, 10)
+    results = dict()
+    methods = list()
+    # methods.extend(['CG', 'L-BFGS-B', ])
+    methods.extend([[('CG', 5), ('L-BFGS-B', 5)]])
+    methods.extend([[('CG', 5), ('L-BFGS-B', 10 ** 4)]])
+
+    for method in methods:
+        mhash = get_hashable(method)
+        agent = FNN(layers)
+        lamb = 2
+        s = "Training %s with %s method" % (agent.__class__.__name__, mhash)
+        print
+        print s
+        print "-" * len(s)
+
+        t0 = time.time()
+        results[mhash] = r = agent.train(
+            X, Y, learning_rate=lamb,
+            method=method,
+            checkpoint=chp,
+            maxiter=100)
+        r.elapsed = time.time() - t0
+        print "Method: %s : %d secs" % (method, r.elapsed)
+
+    pplot(results, 'error', 'accuracy')
+    foo = 1
+
+
+
+
+
 
 
 
@@ -201,6 +232,6 @@ if __name__ == '__main__':
     # test_gradients()
     # test_speed_sigmoid()
     # test_train_nn_with_regular_min_methods()
-    test_MNIST_dataset()
+    test_MNIST_dataset_with_multimethods()
 
     pass

@@ -6,6 +6,8 @@ import os
 import numpy as np
 import cPickle as pickle
 import random
+import itertools
+import types
 # # import bz2
 import gzip
 import matplotlib.pyplot as plt
@@ -27,6 +29,20 @@ def batch_iter(size=1000, *data):
         for element in data:
             result.append(element[idx])
         yield result
+
+
+class NullCheckpoint(dict):
+    "A null checkpoint that does nothing"
+    def __init__(self, filename):
+        self.filename = filename
+
+    def save(self, **data):
+        "save the dict to disk"
+        pass
+
+    def load(self):
+        "load dict from disk"
+        return self
 
 
 class Checkpoint(dict):
@@ -233,10 +249,31 @@ def predict_multi_class(Theta, X):
 
 def plot_error_evolution(trajectory, cost, *args):
     "Plot error evolution, to see the shape"
+    # TODO: obsolete plot_error_evolution
     error = [cost(t, *args) for t in trajectory]
     plt.plot(error)
     plt.ylabel('Error')
     plt.xlabel('Iterations')
+    plt.show()
+
+def pplot(data, *keys, **options):
+    n = len(keys) or 1
+    fig, axes = plt.subplots(n, sharex=True)
+
+    if keys:
+        for label, values in data.items():
+            for i, key in enumerate(keys):
+                axes[i].plot(values.get(key), label=label, **options)
+        for ax in axes:
+            legend = ax.legend(loc='upper center')
+    else:
+        for label, values in data.items():
+            axes.plot(values, label=label, **options)
+
+        legend = axes.legend(loc='upper center')
+
+
+
     plt.show()
 
 
@@ -442,12 +479,20 @@ def expand_labels(y, n_klasses=None):
         return y, {}  # we missing the mapping, you know in caller level.
 
 
+
+def get_hashable(method):
+    if method.__hash__:
+        return method
+    return str(method)
+
+
 class ClassificationAgent(Agent):
     def __init__(self):
         Agent.__init__(self)
 
     def train(self, X, y, learning_rate=1.0, method='L-BFGS-B',
-                    plot=True, checkpoint=None):
+                    plot=False, checkpoint=None,
+                    **options):
 
         """Train the classification agent.
 
@@ -477,11 +522,11 @@ class ClassificationAgent(Agent):
 
         # save theta evolution
         checkpoint.load()
-        # errors = checkpoint.setdefault('error', list())
+        # error = checkpoint.setdefault('error', list())
         # trajectory = checkpoint.setdefault('trajectory', list())
         # accuracy = checkpoint.setdefault('accuracy', list())
 
-        errors = list()
+        error = list()
         trajectory = list()
         accuracy = list()
 
@@ -489,34 +534,56 @@ class ClassificationAgent(Agent):
             "save each step of the training"
             acc = self.accuracy(X, Y)
             trajectory.append(x.copy())
-            errors.append(self.J)
+            error.append(self.J)
             accuracy.append(acc)
             iteration = len(accuracy)
-            print "[%4d] Accurracy: %s, Cost: J=%s" % \
+            print "[%4d] Accurracy: %f\tCost: J=%f" % \
                   (iteration, acc, self.J)
 
-            if not len(errors) % 20:
+            if not len(error) % 20:
                 checkpoint.save(Theta=self.Theta, iteration=iteration)
 
         Theta = checkpoint.get('Theta')
         if Theta is not None:
             self.setup(Theta)
 
+        args=(X, Y, learning_rate)
+        # force a 1st time cost computation to assure that
+        # gradient will be properly computed (e.g backpropagation case)
+        self.cost(*args)
+
         theta = unpack(self.Theta)
+        ops = {'maxiter': 400, 'disp': False, 'gtol': 1e-3,}
+        ops.update(options)
 
-        # call optimization method
-        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
-        result = minimize(
-            fun=cost,
-            x0=theta,
-            args=(X, Y, learning_rate),
-            method=method,
-            jac=grad,
-            callback=retail,
-            options={'maxiter': 100000, 'disp': False, 'gtol': 1e-3,}
-        )
+        # prepare for cycling methods is they're specified.
+        if isinstance(method, (types.ListType, types.TupleType)):
+            methods = method
+        else:
+            methods = [(method, ops['maxiter']), ]
 
-        theta = result.x
+        remain_iters = ops['maxiter']
+        for method, iters in itertools.cycle(methods):
+
+            # call optimization method
+            # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+            ops['maxiter'] = iters = min(remain_iters, iters)
+            print "Using: %s for %d iters" % (method, iters)
+
+            result = minimize(
+                fun=cost,
+                x0=theta,
+                args=args,
+                method=method,
+                jac=grad,
+                callback=retail,
+                options=ops,
+            )
+            remain_iters -= iters
+            if remain_iters <= 0:
+                break
+
+            theta = unpack(self.Theta)  # for the next method (is any)
 
         checkpoint.save(Theta=self.Theta)
         if plot:
@@ -528,7 +595,9 @@ class ClassificationAgent(Agent):
             ax1.set_title('Accurracy')
             plt.show()
 
-        return theta, result
+        result.error = error
+        result.accuracy = accuracy
+        return result
 
 
 class FNN(ClassificationAgent):

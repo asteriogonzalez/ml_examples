@@ -16,6 +16,7 @@ from mpl_toolkits.mplot3d import Axes3D
 import scipy.optimize as opt
 from scipy.optimize import minimize
 from scipy.io import loadmat, savemat
+from sklearn.datasets import fetch_mldata
 
 from aiml import *
 
@@ -36,7 +37,7 @@ def test_gradients():
     t0 = time.time()
     grad_num = nn.grad_numerical(X, Y, lamb)
     t1 = time.time()
-    grad_bp = nn.grad_backprop(X, Y, lamb)
+    grad_bp = nn.grad(X, Y, lamb)
     t2 = time.time()
 
     diff = grad_num - grad_bp
@@ -161,14 +162,45 @@ def test_train_nn_with_regular_min_methods():
 
     lamb = 2
     # nn.solve(X, y, lamb=lamb, checkpoint='test.npz')
-    train_neural_net(nn, X, y, learning_rate=lamb,
+    nn.train(X, y, learning_rate=lamb,
                      method='L-BFGS-B',
                      checkpoint=chp)
+
+
+def test_MNIST_dataset():
+    mnist = fetch_mldata('MNIST original')
+    print mnist.data.shape
+    print mnist.target.shape
+    klasses = np.unique(mnist.target)
+    n_klasses = len(klasses)
+
+    chp = Checkpoint('test_MNIST_dataset')
+
+    layers = (28 * 28, 14 * 14, 7 * 7, 10)
+    nn = FNN(layers)
+    for X, y in batch_iter(5000, mnist.data, mnist.target):
+        print X.shape, y.shape
+        Y, mapping = expand_labels(y, n_klasses)
+        break
+
+    del mnist
+
+    # nn.solve(X, Y)
+    # foo = 1
+    lamb = 2
+    # nn.solve(X, y, lamb=lamb, checkpoint='test.npz')
+    nn.train(X, Y, learning_rate=lamb,
+                     method='L-BFGS-B',
+                     checkpoint=chp)
+
+
+
 
 if __name__ == '__main__':
     # test_FFN()
     # test_gradients()
     # test_speed_sigmoid()
-    test_train_nn_with_regular_min_methods()
+    # test_train_nn_with_regular_min_methods()
+    test_MNIST_dataset()
 
     pass

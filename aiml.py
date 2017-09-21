@@ -5,7 +5,9 @@ import time
 import os
 import numpy as np
 import cPickle as pickle
-import bz2
+import random
+# # import bz2
+import gzip
 import matplotlib.pyplot as plt
 from matplotlib.mlab import griddata
 from scipy.optimize import minimize
@@ -15,16 +17,34 @@ from scipy.optimize import minimize
 # TODO: the idea is to expose the NN problems as a 1-D optimization problem.
 # TODO: check the extra column in Theta when Theta is optimized or from scratch
 
+def batch_iter(size=1000, *data):
+    m = data[0].shape[0]
+    index = range(m)
+    random.shuffle(index)
+    for i in xrange(0, m, size):
+        result = list()
+        idx = index[i:i+size]
+        for element in data:
+            result.append(element[idx])
+        yield result
+
+
 class Checkpoint(dict):
     """A simple class for saving and retrieve info
     to continue interrupted works
     """
-    def __init__(self, filename):
-        if not filename.startswith('chp_'):
-            filename = 'chp_' + filename
+    head = 'chp_'
+    # ext = '.pbz2'
+    ext = '.pzip'
 
-        if not filename.endswith('.npz'):
-            filename += '.pbz2'
+    # compressor = bz2.BZ2File
+    compressor = gzip.GzipFile
+    def __init__(self, filename):
+        if not filename.startswith(self.head):
+            filename = self.head + filename
+
+        if not filename.endswith(self.ext):
+            filename += self.ext
         self.filename = filename
 
     def save(self, **data):
@@ -34,13 +54,14 @@ class Checkpoint(dict):
             if k not in data:
                 data[k] = v
 
-        with bz2.BZ2File(self.filename, 'wb') as f:
+        with self.compressor(self.filename, 'wb') as f:
             pickle.dump(data, f, protocol=2)
 
     def load(self):
         "load dict from disk"
         if os.access(self.filename, os.F_OK):
-            with bz2.BZ2File(self.filename, 'rb') as f:
+            print "<< Loading checkpoint: %s" % self.filename
+            with self.compressor(self.filename, 'rb') as f:
                 data = pickle.load(f)
             self.update(data)
         return self
@@ -336,6 +357,22 @@ def solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
     return theta, result
 
 
+
+# def strip_bias(H):
+    # if len(H.shape) > 1:
+        # return H[:, 1:]
+    # return H[1:]
+
+def num_samples(H):
+    if len(H.shape) > 1:
+        return H.shape[0]
+    return 1
+
+
+#-------------------------------------
+# Optimization support
+#-------------------------------------
+
 def pack(theta, matrices):
     "pack all data contained in 1-D array into several matrices"
     a = b = 0
@@ -351,125 +388,158 @@ def unpack(matrices):
         [th.ravel() for th in matrices]
     )
 
-def train_neural_net(nn, X, y, learning_rate=1.0, method='L-BFGS-B',
-                     plot=True, checkpoint=None):
-    """Train a NN exposing cost and gradient functions in
-    1-D vector form, so we can use advanced methods like L-BFGS-B
-    or any other from scipy.minimize module.
-
-    nn: the neural network to train. The layers must be already configured.
-    X: the features training data set
-    y: the labels data set
-    method: minimization method to be used, L-BFGS-B by default.
-    learning_rate: the regularization parameter (lambda)
-    """
-    Y, mapping = expand_labels(y)
-
-    def cost(theta, X, Y, learning_rate=0):
-        "Compute the cost of NN"
-        pack(theta, nn.Theta)
-        cost = nn.cost(X, Y, lamb=learning_rate)
-        # print "COST:", cost
-        return cost
-
-
-    def grad(theta, X, Y, learning_rate=0):
-        "Compute the gradient of logistic regression."
-        # force forward pass
-        # cost(theta, X, Y, learning_rate)
-        # pack(theta, nn.Theta) (not necessary)
-
-        grads = nn.grad_backprop(X, Y, lamb=learning_rate)
-        grad = unpack(grads)
-        return grad
-
-    # save theta evolution
-    checkpoint.load()
-    errors = checkpoint.setdefault('error', list())
-    trajectory = checkpoint.setdefault('trajectory', list())
-    accuracy = checkpoint.setdefault('accuracy', list())
-
-    def retail(x):
-        "save each step of the training"
-        acc = nn.accuracy(X, Y)
-        trajectory.append(x.copy())
-        errors.append(nn.J)
-        accuracy.append(acc)
-        print "Accuracy: %f" % acc
-        if not len(errors) % 50:
-            checkpoint.save(Theta=nn.Theta)
-
-
-    Theta = checkpoint.get('Theta')
-    if Theta is not None:
-        nn.setup(Theta)
-
-    theta = unpack(nn.Theta)
-
-    # call optimization method
-    # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
-    result = minimize(
-        fun=cost,
-        x0=theta,
-        args=(X, Y, learning_rate),
-        method=method,
-        jac=grad,
-        callback=retail,
-        options={'maxiter': 100000, 'disp': False, 'gtol': 1e-3,}
-    )
-
-    theta = result.x
-
-    checkpoint.save(Theta=nn.Theta)
-    if plot:
-        # Plot evolution
-        fig, (ax0, ax1,) = plt.subplots(2, sharex=True)
-        ax0.plot(errors)
-        ax1.plot(accuracy)
-        ax0.set_title('Error J')
-        ax1.set_title('Accurracy')
-        plt.show()
-
-    return theta, result
-
-# def strip_bias(H):
-    # if len(H.shape) > 1:
-        # return H[:, 1:]
-    # return H[1:]
-
-def num_samples(H):
-    if len(H.shape) > 1:
-        return H.shape[0]
-    return 1
-
-def expand_labels(y):
-    klasses = list(np.unique(y))
-    n_klasses = len(klasses)
-    klasses.sort()
-
-    mapping = dict()
-    for i, label in enumerate(klasses):
-        mapping[label] = i
-
-    samples = y.shape[0]
-    y.shape = (samples, )
-
-    # setup the Y multiclass matrix
-    Y = np.zeros((samples, n_klasses), dtype=np.int8)
-    for i, label in enumerate(y):
-        Y[i][mapping[label]] = 1
-
-    return Y, mapping
-
-class FNN(object):
-    def __init__(self, sizes=None):
+class Agent(object):
+    """A interface for agent optimizers"""
+    def __init__(self):
         self.Theta = list()
+        self.J = 0
+
+    def setup(self, Theta):
+        "Setup NN parameters (Theta weigths by now)"
+        self.Theta = np.array(Theta)
+
+    def cost(self, *args, **kw):
+        raise RuntimeError('you call an abstract method')
+
+    def grad(self, *args, **kw):
+        raise RuntimeError('you call an abstract method')
+
+    def train(self, *args, **kw):
+        """Train the agent exposing cost and gradient functions in
+        1-D vector form, so we can use advanced methods like L-BFGS-B, CG
+        or any other from scipy.minimize module."""
+
+        raise RuntimeError('you call an abstract method')
+
+def expand_labels(y, n_klasses=None):
+    """Expand a 1-D label vector into a matrix with a '1'
+    in the right column and zeros elsewhere.
+
+    If the y sample hasn't elements of ALL classes (is not fully populated)
+    then you must provide n_klasses parameter to build the matrix with
+    the right (full) dimension.
+    """
+    if len(y.shape) == 1:
+        klasses = list(np.unique(y))
+        klasses.sort()
+
+        n_klasses = n_klasses or len(klasses)
+
+        mapping = dict()
+        for i, label in enumerate(klasses):
+            mapping[label] = i
+
+        samples = y.shape[0]
+        y.shape = (samples, )
+
+        # setup the Y multiclass matrix
+        Y = np.zeros((samples, n_klasses), dtype=np.int8)
+        for i, label in enumerate(y):
+            Y[i][mapping[label]] = 1
+
+        return Y, mapping
+    else:
+        return y, {}  # we missing the mapping, you know in caller level.
+
+
+class ClassificationAgent(Agent):
+    def __init__(self):
+        Agent.__init__(self)
+
+    def train(self, X, y, learning_rate=1.0, method='L-BFGS-B',
+                    plot=True, checkpoint=None):
+
+        """Train the classification agent.
+
+        The agent must be already configured (layers in NN, etc) prior
+        calling this function.
+
+        X: the features training data set
+        y: the labels data set
+        method: minimization method to be used, L-BFGS-B by default.
+        learning_rate: the regularization parameter (lambda)
+        """
+        Y, mapping = expand_labels(y)
+
+        def cost(theta, X, Y, learning_rate=0):
+            "Compute the cost of NN"
+            self.pack(theta)
+            return self.cost(X, Y, lamb=learning_rate)
+
+        def grad(theta, X, Y, learning_rate=0):
+            "Compute the gradient of logistic regression."
+            # force forward pass
+            # cost(theta, X, Y, learning_rate)
+            # pack(theta, nn.Theta) (not necessary)
+
+            grads = self.grad(X, Y, lamb=learning_rate)
+            return unpack(grads)
+
+        # save theta evolution
+        checkpoint.load()
+        # errors = checkpoint.setdefault('error', list())
+        # trajectory = checkpoint.setdefault('trajectory', list())
+        # accuracy = checkpoint.setdefault('accuracy', list())
+
+        errors = list()
+        trajectory = list()
+        accuracy = list()
+
+        def retail(x):
+            "save each step of the training"
+            acc = self.accuracy(X, Y)
+            trajectory.append(x.copy())
+            errors.append(self.J)
+            accuracy.append(acc)
+            iteration = len(accuracy)
+            print "[%4d] Accurracy: %s, Cost: J=%s" % \
+                  (iteration, acc, self.J)
+
+            if not len(errors) % 20:
+                checkpoint.save(Theta=self.Theta, iteration=iteration)
+
+        Theta = checkpoint.get('Theta')
+        if Theta is not None:
+            self.setup(Theta)
+
+        theta = unpack(self.Theta)
+
+        # call optimization method
+        # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+        result = minimize(
+            fun=cost,
+            x0=theta,
+            args=(X, Y, learning_rate),
+            method=method,
+            jac=grad,
+            callback=retail,
+            options={'maxiter': 100000, 'disp': False, 'gtol': 1e-3,}
+        )
+
+        theta = result.x
+
+        checkpoint.save(Theta=self.Theta)
+        if plot:
+            # Plot evolution
+            fig, (ax0, ax1,) = plt.subplots(2, sharex=True)
+            ax0.plot(errors)
+            ax1.plot(accuracy)
+            ax0.set_title('Error J')
+            ax1.set_title('Accurracy')
+            plt.show()
+
+        return theta, result
+
+
+class FNN(ClassificationAgent):
+    def __init__(self, sizes=None):
+        ClassificationAgent.__init__(self)
+
         # self.Z = list()  # intermediate Z output values for backprop
         self.H = None    # the last hypothesis value
         self.Hs = list()
-        self.X = None
-        self.Y = None
-        self.J = 0
+        # self.X = None
+        # self.Y = None
 
         if sizes:
             self.create_netwotk(sizes)
@@ -495,9 +565,7 @@ class FNN(object):
             Theta = np.random.randn(*size) * epsilon
             self.Theta.append(Theta)
 
-    def setup(self, Theta):
-        "Setup NN parameters (Theta weigths by now)"
-        self.Theta = np.array(Theta)
+
 
     def solve(self, X, y, alpha=1.0, lamb=0.1, min_accuracy=0.95, checkpoint='',
               plot=False):
@@ -526,8 +594,7 @@ class FNN(object):
             self.backprop(X, Y, alpha, lamb)
 
             if not iteration % 20:
-                p = self.predict(X)
-                acc = (p == y).mean()
+                acc = self.accuracy(X, Y)
                 delta = np.mean([d.mean() for d in self.H])
 
                 accuracy.append(acc)
@@ -561,12 +628,12 @@ class FNN(object):
             ax2.set_title('H evolution')
             plt.show()
 
-        p = self.predict(X)
-        print "Accurracy: %f" % (p == y).mean()
+        acc = self.accuracy(X)
+        print "Accurracy: %f" % acc
 
 
     def backprop(self, X, Y, alpha=1, lamb=2):
-        grads = self.grad_backprop(X, Y, lamb)
+        grads = self.grad(X, Y, lamb)
         self.Theta -= alpha * grads
 
     def forward(self, X):
@@ -649,7 +716,7 @@ class FNN(object):
 
         return np.array(outputs)
 
-    def grad_backprop(self, X, Y, lamb=0.0):
+    def grad(self, X, Y, lamb=0.0):
         "Compute the gradients using Back Propagation algorithm"
         # asume that a fwd has been already done
         # self.forward(X)
@@ -721,6 +788,13 @@ class FNN(object):
 
         predict = float(match) / Y.shape[0]
         return predict
+
+    def pack(self, thetas):
+        return pack(thetas, self.Theta)
+
+    def unpack(self):
+        return unpack(self.Theta)
+
 
 
 

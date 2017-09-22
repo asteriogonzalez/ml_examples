@@ -3,7 +3,6 @@
 
 import time
 import os
-import gc
 import numpy as np
 import cPickle as pickle
 import random
@@ -23,8 +22,8 @@ from sklearn.datasets import fetch_mldata
 
 
 # TODO: test for checking numerical and backprop gradients
-# TODO: solve net convergence using L-BFGS-B method (or any other in 1-D form)
-# TODO: the idea is to expose the NN problems as a 1-D optimization problem.
+# DONE: solve net convergence using L-BFGS-B method (or any other in 1-D form)
+# DONE: the idea is to expose the NN problems as a 1-D optimization problem.
 # TODO: check the extra column in Theta when Theta is optimized or from scratch
 
 # -------------------------------------------------
@@ -76,6 +75,8 @@ def batch_mldata_classes(dbname):
 # -------------------------------------------------
 # Recovery Checkpoint support
 # -------------------------------------------------
+import inspect
+
 class NullCheckpoint(dict):
     "A null checkpoint that does nothing"
     def __init__(self, filename):
@@ -92,25 +93,47 @@ class NullCheckpoint(dict):
 
 class Checkpoint(dict):
     """A simple class for saving and retrieve info
-    to continue interrupted works
+    to continue interrupted works.
+
+    CACHE_EXPIRE: controls when data is discarded (but not deleted)
     """
-    head = 'chp_'
+    CACHE_EXPIRE = 24 * 3600  # cache will be discarded beyond this time
+    folder = '.checkpoints'
     # ext = '.pbz2'
     ext = '.pzip'
+    # head = 'chp_'
 
     # compressor = bz2.BZ2File
     compressor = gzip.GzipFile
-    def __init__(self, filename):
-        if not filename.startswith(self.head):
-            filename = self.head + filename
+    def __init__(self, filename=None):
+        if not filename:
+            filename = inspect.stack()[1][3]
+
+        # if not filename.startswith(self.head):
+            # filename = self.head + filename
+
+        folder, basename = os.path.split(filename)
+        if not folder:
+            filename = os.path.join(self.folder, filename)
 
         if not filename.endswith(self.ext):
             filename += self.ext
+
+        filename = os.path.expanduser(filename)
+        filename = os.path.expandvars(filename)
+        filename = os.path.abspath(filename)
+
         self.filename = filename
+        self.load()
 
     def save(self, **data):
         "save the dict to disk"
-        print ">> Saving checkpoint: %s" % self.filename
+        print ">> Saving checkpoint: %s" % os.path.basename(self.filename)
+
+        folder = os.path.split(self.filename)[0]
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+
         for k, v in self.items():
             if k not in data:
                 data[k] = v
@@ -121,13 +144,20 @@ class Checkpoint(dict):
     def load(self):
         "load dict from disk"
         if os.access(self.filename, os.F_OK):
-            print "<< Loading checkpoint: %s" % self.filename
-            with self.compressor(self.filename, 'rb') as f:
-                data = pickle.load(f)
-            self.update(data)
+            mtime = os.stat(self.filename).st_mtime
+            if time.time() - mtime > self.CACHE_EXPIRE:
+                print "** Ignoring EXPIRED checkpoint data: %s **" % os.path.basename(self.filename)
+            else:
+                print "<< Loading checkpoint: %s" % os.path.basename(self.filename)
+                with self.compressor(self.filename, 'rb') as f:
+                    data = pickle.load(f)
+                self.update(data)
+            self['CREATION_DATE'] = mtime
         return self
 
-
+# -------------------------------------------------
+# Misc (for review)
+# -------------------------------------------------
 def load_XY_csv(filename):
     """Load a CSV file and prepare the X e y matrix
     with the bias term ready for optimization.
@@ -235,11 +265,6 @@ def create_grid_around(mean, std):
     return t0, t1
 
 
-def sigmoid(z):
-    "The sigmoid function"
-    return 1.0 / (1 + np.exp(-z))
-
-
 def map_feature(x1, x2, degree=1):
     """Create a full feature vector from two sets.
     """
@@ -299,45 +324,6 @@ def plot_error_evolution(trajectory, cost, *args):
     plt.plot(error)
     plt.ylabel('Error')
     plt.xlabel('Iterations')
-    plt.show()
-
-def pplot(data, *keys, **options):
-    n = len(keys) or 1
-    fig, axes = plt.subplots(n, sharex=True)
-
-    if len(keys) > 1:
-        for label, values in data.items():
-            for i, key in enumerate(keys):
-                axes[i].plot(values.get(key), label=label, **options)
-        for ax in axes:
-            legend = ax.legend(loc='upper center')
-    else:
-        for label, values in data.items():
-            axes.plot(values, label=label, **options)
-
-        legend = axes.legend(loc='upper left')
-
-    plt.show()
-
-
-def plot_decision_boundary(hypothesis, u, v):
-    "Plot the decision boundary where hypothesis is zero"
-    u, v = np.meshgrid(u, v)
-
-    Z = hypothesis(u, v)
-
-    # the decision boundary if where hypothesis is zero
-    # we can figure out drawing the 'zero' contour line
-    plt.contour(u, v, Z, levels=[0], linewidths=2.5,
-                colors='g', linestyles='dashed')
-
-    # draw some iso-lines, to see the shape of the solution
-    levels = range(-5, 5)
-    plt.contour(u, v, Z, levels=levels, linewidths=1.5,
-                colors='k', alpha=0.05)
-    plt.contourf(u, v, Z, levels=levels, alpha=0.05)
-
-    plt.title('Decision boundary')
     plt.show()
 
 def solve_logistic_regression(X, y, theta=None, learning_rate=1.0):
@@ -448,10 +434,59 @@ def num_samples(H):
         return H.shape[0]
     return 1
 
+# -------------------------------------------------
+# Plotting support
+# -------------------------------------------------
+def pplot(data, *keys, **options):
+    "Pretty print plot"
+    n = len(keys) or 1
+    fig, axes = plt.subplots(n, sharex=True)
+
+    if len(keys) > 1:
+        for label, values in data.items():
+            for i, key in enumerate(keys):
+                axes[i].plot(values.get(key), label=label, **options)
+        for ax in axes:
+            legend = ax.legend(loc='upper center')
+    else:
+        for label, values in data.items():
+            axes.plot(values, label=label, **options)
+
+        legend = axes.legend(loc='upper left')
+
+    plt.show()
+
+
+def plot_decision_boundary(hypothesis, u, v):
+    "Plot the decision boundary where hypothesis is zero"
+    u, v = np.meshgrid(u, v)
+
+    Z = hypothesis(u, v)
+
+    # the decision boundary if where hypothesis is zero
+    # we can figure out drawing the 'zero' contour line
+    plt.contour(u, v, Z, levels=[0], linewidths=2.5,
+                colors='g', linestyles='dashed')
+
+    # draw some iso-lines, to see the shape of the solution
+    levels = range(-5, 5)
+    plt.contour(u, v, Z, levels=levels, linewidths=1.5,
+                colors='k', alpha=0.05)
+    plt.contourf(u, v, Z, levels=levels, alpha=0.05)
+
+    plt.title('Decision boundary')
+    plt.show()
+
+
 
 #-------------------------------------
 # Optimization support
 #-------------------------------------
+def sigmoid(z):
+    "The sigmoid function"
+    return 1.0 / (1 + np.exp(-z))
+
+
 def pack(theta, matrices):
     "pack all data contained in 1-D array into several matrices"
     a = b = 0

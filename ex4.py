@@ -154,7 +154,7 @@ def test_speed_sigmoid():
 
 
 def test_train_nn_with_regular_min_methods():
-    chp = Checkpoint('test_train_nn_with_regular_min_methods')
+    chp = Checkpoint()
     sizes = (20 * 20, 10 * 10, 5 * 5, 10)
     nn = FNN(sizes=sizes)
 
@@ -220,7 +220,7 @@ def test_MNIST_dataset_with_multimethods():
 def test_MNIST_training():
     """Train a FNN for MNIST using batch
     """
-    chp = NullCheckpoint('test_MNIST_training')
+    chp = Checkpoint()
 
     layers = (28 * 28, 14 * 14, 7 * 7, 10)
     # layers = (28 * 28, 10 * 10, 10)
@@ -317,7 +317,23 @@ def test_load_sqlite_arrays():
 
 
 
+
+def test_checkpoint():
+
+    chp = Checkpoint()
+    chp['foo'] = 'bar'
+    chp.save()
+
+    filename = chp.filename
+    del chp
+
+    chp2 = Checkpoint(filename)
+    assert chp2['foo'] == 'bar'
+
+
+
 if __name__ == '__main__':
+    test_checkpoint()
     # test_FFN()
     # test_gradients()
     # test_speed_sigmoid()

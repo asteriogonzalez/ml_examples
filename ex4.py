@@ -4,9 +4,11 @@ Andrew Ng Coursera course
 https://www.coursera.org/learn/machine-learning/home/welcome
 buy using Python instead Octave.
 """
+import sys
 from os import path
 import random
 import time
+import zlib
 from pprint import pprint
 
 import numpy as np
@@ -167,36 +169,31 @@ def test_train_nn_with_regular_min_methods():
                      checkpoint=chp)
 
 
+MNIST = 'MNIST original'
 def test_MNIST_dataset_with_multimethods():
-    """Train a FNN for MNIST using different methods or combination of them:
+    """Test some methods or combination of them to train FNN for MNIST
     e.g.
        - GC
        - L-BFGS-B
        - GC for 5 iterations, L-BFGS-B for 5 iterations and so forth
        - GC for 5 iterations, then switch to L-BFGS-B until end
     """
-    mnist = fetch_mldata('MNIST original')
-    print mnist.data.shape
-    print mnist.target.shape
-    klasses = np.unique(mnist.target)
-    n_klasses = len(klasses)
 
     chp = NullCheckpoint('test_MNIST_dataset_with_multimethods')
 
-    for X, y in batch_iter(5000, mnist.data, mnist.target):
-        print X.shape, y.shape
-        Y, mapping = expand_labels(y, n_klasses)
-        break
-
-    del mnist
-
-    layers = (28 * 28, 14 * 14, 7 * 7, 10)
+    # layers = (28 * 28, 14 * 14, 7 * 7, 10)
     layers = (28 * 28, 10 * 10, 10)
     results = dict()
     methods = list()
-    # methods.extend(['CG', 'L-BFGS-B', ])
-    methods.extend([[('CG', 5), ('L-BFGS-B', 5)]])
+    methods.extend(['CG', 'L-BFGS-B', ])
+    # methods.extend([[('CG', 5), ('L-BFGS-B', 5)]])
     methods.extend([[('CG', 5), ('L-BFGS-B', 10 ** 4)]])
+
+    n_klasses = batch_mldata_classes(MNIST)
+    for i, (X, y) in batch_mldata(MNIST, 5000):
+        print "Batch [%3d] %s, %s" % (i, X.shape, y.shape)
+        Y, mapping = expand_labels(y, n_klasses)
+        break
 
     for method in methods:
         mhash = get_hashable(method)
@@ -212,7 +209,7 @@ def test_MNIST_dataset_with_multimethods():
             X, Y, learning_rate=lamb,
             method=method,
             checkpoint=chp,
-            maxiter=100)
+            maxiter=200)
         r.elapsed = time.time() - t0
         print "Method: %s : %d secs" % (method, r.elapsed)
 
@@ -220,7 +217,100 @@ def test_MNIST_dataset_with_multimethods():
     foo = 1
 
 
+def test_MNIST_training():
+    """Train a FNN for MNIST using batch
+    """
+    chp = NullCheckpoint('test_MNIST_training')
 
+    layers = (28 * 28, 14 * 14, 7 * 7, 10)
+    # layers = (28 * 28, 10 * 10, 10)
+
+    method = [('CG', 5), ('L-BFGS-B', 10 ** 4)]
+    method = 'L-BFGS-B'
+
+    agent = FNN(layers)
+    lamb = 2
+    s = "Training %s with %s method" % (agent.__class__.__name__, method)
+    print
+    print s
+    print "-" * len(s)
+
+    n_klasses = batch_mldata_classes(MNIST)
+    batch_size = 500
+    batch = batch_mldata(MNIST, batch_size)
+    for i, (X0, y0) in batch:
+        print "Batch [%3d] %s, %s" % (i, X0.shape, y0.shape)
+        Y0, mapping = expand_labels(y0, n_klasses)
+        break  # initial batch
+
+    accuracy = list()
+
+    for i, (X, y) in batch:
+        t0 = time.time()
+        r = agent.train(
+            X0, Y0, learning_rate=lamb,
+            method=method,
+            checkpoint=chp,
+            maxiter=int(batch_size / 7.5),
+        )
+        r.elapsed = time.time() - t0
+
+        # check accuracy with UNSEEN data
+        # and use for learning in the next step
+
+        Y, mapping = expand_labels(y, n_klasses)
+        agent.forward(X)  # accuracy expects a previous FWD pass
+        acc = agent.accuracy(X, Y)
+        print "Batch [%3d] accuracy: %f,  %d secs" % (i, acc, r.elapsed)
+        accuracy.append(acc)
+        X0, Y0 = X, Y
+        if i > 30:
+            break
+
+    results = dict(accuracy=accuracy)
+    pplot(results, 'accuracy')
+    foo = 1
+
+
+dbname = 'example.db'
+def test_save_sqlite_arrays():
+    "Load MNIST database (70000 samples) and store in a compressed SQLite db"
+    os.path.exists(dbname) and os.unlink(dbname)
+    con = sqlite3.connect(dbname, detect_types=sqlite3.PARSE_DECLTYPES)
+    cur = con.cursor()
+    cur.execute("create table test (idx integer primary key, X array, y integer );")
+
+    mnist = fetch_mldata('MNIST original')
+
+    X, y =  mnist.data, mnist.target
+    m = X.shape[0]
+    t0 = time.time()
+    for i, x in enumerate(X):
+        cur.execute("insert into test (idx, X, y) values (?,?,?)",
+                    (i, y, int(y[i])))
+        if not i % 100 and i > 0:
+            elapsed = time.time() - t0
+            remain = float(m - i) / i * elapsed
+            print "\r[%5d]: %3d%% remain: %d secs" % (i, 100 * i / m, remain),
+            sys.stdout.flush()
+
+    con.commit()
+    con.close()
+    elapsed = time.time() - t0
+    print
+    print "Storing %d images in %0.1f secs" % (m, elapsed)
+
+def test_load_sqlite_arrays():
+    "Query MNIST SQLite database and load some samples"
+    con = sqlite3.connect(dbname, detect_types=sqlite3.PARSE_DECLTYPES)
+    cur = con.cursor()
+
+    # select all images labeled as '2'
+    t0 = time.time()
+    cur.execute('select idx, X, y from test where y = 2')
+    data = cur.fetchall()
+    elapsed = time.time() - t0
+    print "Retrieve %d images in %0.1f secs" % (len(data), elapsed)
 
 
 
@@ -232,6 +322,9 @@ if __name__ == '__main__':
     # test_gradients()
     # test_speed_sigmoid()
     # test_train_nn_with_regular_min_methods()
-    test_MNIST_dataset_with_multimethods()
+    # test_MNIST_dataset_with_multimethods()
+    test_MNIST_training()
+    # test_save_sqlite_arrays()
+    # test_load_sqlite_arrays()
 
     pass

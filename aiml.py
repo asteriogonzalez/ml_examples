@@ -3,6 +3,7 @@
 
 import time
 import os
+import gc
 import numpy as np
 import cPickle as pickle
 import random
@@ -10,14 +11,26 @@ import itertools
 import types
 # # import bz2
 import gzip
+import sqlite3
+import numpy as np
+import io
+
 import matplotlib.pyplot as plt
 from matplotlib.mlab import griddata
 from scipy.optimize import minimize
+
+from sklearn.datasets import fetch_mldata
+
 
 # TODO: test for checking numerical and backprop gradients
 # TODO: solve net convergence using L-BFGS-B method (or any other in 1-D form)
 # TODO: the idea is to expose the NN problems as a 1-D optimization problem.
 # TODO: check the extra column in Theta when Theta is optimized or from scratch
+
+# -------------------------------------------------
+# Batch iterator support
+# -------------------------------------------------
+import gc
 
 def batch_iter(size=1000, *data):
     m = data[0].shape[0]
@@ -30,7 +43,39 @@ def batch_iter(size=1000, *data):
             result.append(element[idx])
         yield result
 
+def batch_mldata(dbname, size=1000, memory=False):
+    info = fetch_mldata(dbname)
+    colnames = [k for k in info.keys() if k == k.lower()]
+    colnames.sort()
 
+    m = info[colnames[0]].shape[0]
+    index = range(m)
+    random.shuffle(index)
+
+    for j in xrange(0, m/size):
+        i = j * size
+        result = list()
+        idx = index[i:i + size]
+        for col in colnames:
+            result.append(info[col][idx])
+        yield j, result
+        if not memory:
+            # clean the memory for the current step
+            del info
+            gc.collect()
+            info = fetch_mldata(dbname)
+
+def batch_mldata_classes(dbname):
+    info = fetch_mldata(dbname)
+    n_klasses = info.get('target')
+    if n_klasses is not None:
+        n_klasses = len(np.unique(n_klasses))
+    return n_klasses
+
+
+# -------------------------------------------------
+# Recovery Checkpoint support
+# -------------------------------------------------
 class NullCheckpoint(dict):
     "A null checkpoint that does nothing"
     def __init__(self, filename):
@@ -260,7 +305,7 @@ def pplot(data, *keys, **options):
     n = len(keys) or 1
     fig, axes = plt.subplots(n, sharex=True)
 
-    if keys:
+    if len(keys) > 1:
         for label, values in data.items():
             for i, key in enumerate(keys):
                 axes[i].plot(values.get(key), label=label, **options)
@@ -270,9 +315,7 @@ def pplot(data, *keys, **options):
         for label, values in data.items():
             axes.plot(values, label=label, **options)
 
-        legend = axes.legend(loc='upper center')
-
-
+        legend = axes.legend(loc='upper left')
 
     plt.show()
 
@@ -409,7 +452,6 @@ def num_samples(H):
 #-------------------------------------
 # Optimization support
 #-------------------------------------
-
 def pack(theta, matrices):
     "pack all data contained in 1-D array into several matrices"
     a = b = 0
@@ -490,7 +532,7 @@ class ClassificationAgent(Agent):
     def __init__(self):
         Agent.__init__(self)
 
-    def train(self, X, y, learning_rate=1.0, method='L-BFGS-B',
+    def train(self, X, y, learning_rate=2.25, method='L-BFGS-B',
                     plot=False, checkpoint=None,
                     **options):
 
@@ -564,7 +606,6 @@ class ClassificationAgent(Agent):
 
         remain_iters = ops['maxiter']
         for method, iters in itertools.cycle(methods):
-
             # call optimization method
             # https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
             ops['maxiter'] = iters = min(remain_iters, iters)
@@ -798,7 +839,25 @@ class FNN(ClassificationAgent):
             # so make a copy and overwrite the 1st column
             H = np.copy(H)
             H[:, 0] = 1
+            # # agp
+            # t0 = time.time()
             DTheta = np.einsum('...i,...j->...ij', H, delta)
+            # t1 = time.time()
+
+            # DTheta0 = np.zeros_like(self.Theta[i])
+            # m = H.shape[0]
+            # for k in range(m):
+                # dT = np.outer(H[k], delta[k])
+                # DTheta0 += dT
+            # DTheta0 /= m
+            # t2 = time.time()
+
+            # e1 = t1 - t0
+            # e2 = t2 - t1
+
+            # kk = np.allclose(DTheta, DTheta0)
+            # print e1, e2, kk
+
             if len(DTheta.shape) > 2:
                 # average of all gradients per sample
                 DTheta = np.average(DTheta, axis=0)
@@ -866,4 +925,34 @@ class FNN(ClassificationAgent):
 
 
 
+
+# -------------------------------------------------
+# numpy sqlite support
+# -------------------------------------------------
+# TODO: make a test and move out from here in a separate repository / library
+import sqlite3
+import numpy as np
+import io
+
+compressor = 'zlib'  # zlib, bz2
+
+def adapt_array(arr):
+    """
+    http://stackoverflow.com/a/31312102/190597 (SoulNibbler)
+    """
+    # zlib uses similar disk size that Matlab v5 .mat files
+    # bz2 compress 4 times zlib, but storing process is 20 times slower.
+    out = io.BytesIO()
+    np.save(out, arr)
+    out.seek(0)
+    return sqlite3.Binary(out.read().encode(compressor))  # zlib, bz2
+
+def convert_array(text):
+    out = io.BytesIO(text)
+    out.seek(0)
+    out = io.BytesIO(out.read().decode(compressor))
+    return np.load(out)
+
+sqlite3.register_adapter(np.ndarray, adapt_array)
+sqlite3.register_converter("array", convert_array)
 

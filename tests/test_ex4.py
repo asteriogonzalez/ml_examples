@@ -4,68 +4,58 @@ Andrew Ng Coursera course
 https://www.coursera.org/learn/machine-learning/home/welcome
 buy using Python instead Octave.
 """
-import sys
-from os import path
-import random
+from os import sys, path
+sys.path.append(path.dirname(path.dirname(path.abspath(__file__))))
+
 import time
-import zlib
-from pprint import pprint
 
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib import cm
-from mpl_toolkits.mplot3d import Axes3D
-import scipy.optimize as opt
-from scipy.optimize import minimize
-from scipy.io import loadmat, savemat
-from sklearn.datasets import fetch_mldata
+from scipy.io import loadmat
+
+import pytest
 
 from aiml import *
 
-
-def test_gradients():
-    "Check that numerical and backpropagation get same results"
-    sizes = (20 * 20, 10 * 10, 5 * 5, 10)
-    # sizes = (20 * 20, 5 * 5, 10)
-    nn = FNN(sizes=sizes)
-
-    data = loadmat('ex4data1.mat')
-    X, y = data['X'], data['y']
-    Y, mapping = expand_labels(y)
-
-    # compute gradients using finite difference and backprop
-    lamb = 2
-    H = nn.forward(X)
-    t0 = time.time()
-    grad_num = nn.grad_numerical(X, Y, lamb)
-    t1 = time.time()
-    grad_bp = nn.grad(X, Y, lamb)
-    t2 = time.time()
-
-    diff = grad_num - grad_bp
-    for i, th in enumerate(diff):
-        error = th.mean()
-        assert error < 1e-4
-        print "Matrix: %s, error: %s" % (i, error)
-
-    e1 = t1 - t0
-    e2 = t2 - t1
-    print "Finite Difference: %ds" % e1
-    print "Back Propagation:  %ds" % e2
-    print "BP/FD: %d faster" % (e1 / e2)
+MNIST = 'MNIST original'
 
 
-def test_FFN():
-    """Load a pre-trained NN from Andrew Ng course and make predictions using
-    FNN, then forget the learn, re-train from scratch until same accuracy
+
+foo = pytest.mark.foo
+
+@foo
+def test_foo():
+    print "Ok :)"
+
+
+@pytest.mark.incremental
+class TestUserHandling(object):
+    def test_login(self):
+        pass
+    def test_modification(self):
+        assert 1
+    def test_deletion(self):
+        pass
+
+def test_normal():
+    pass
+
+
+def _test_FFN():
+    """This test performs some stages:
+
+    1. Load a pre-trained NN from Andrew Ng course and make predictions using
+    FNN
+
+    2. then forget the learn, re-train from scratch until same accuracy
     and make the same predictions.
 
-    Finally point out that two NN with same accuracy may have very different
+    3. Finally point out that two NN with same accuracy may have very different
     internal weigths.
     """
     nn = FNN()
     # load a trained NN from disk
-    data = loadmat('ex4weights.mat')
+    data = loadmat('data/ex4weights.mat')
     Theta = [data['Theta1'], data['Theta2']]
 
     for i, Z in enumerate(Theta):
@@ -75,28 +65,31 @@ def test_FFN():
     nn.setup(Theta)
 
     # load sampe labelled data
-    data = loadmat('ex4data1.mat')
+    data = loadmat('data/ex4data1.mat')
     X, y = data['X'], data['y']
     Y, mapping = expand_labels(y)
 
     # evaluate error and accuracy in pre-trained NN
     H = nn.forward(X)
-    error =  ((H - Y) ** 2).mean()
+    error = ((H - Y) ** 2).mean()
     p = nn.predict(X)
     acc = (p == y).mean()
     print "Accurracy: %s, Error:%s (pre-trained)" % (acc, error)
 
+
     # solve the problem from scratch
+    Y, mapping = expand_labels(y)
+
     for i, th in enumerate(Theta):
         Theta[i] = np.random.randn(*th.shape)
     nn.setup(Theta)
-    nn.solve(X, y, min_accuracy=0.975, checkpoint='test_FNN.npz')
+
+    nn.train(X, Y)
 
     # evaluate error and accuracy in our net
     H = nn.forward(X)
-    error =  ((H - Y) ** 2).mean()
-    p = nn.predict(X)
-    acc = (p == y).mean()
+    error = ((H - Y) ** 2).mean()
+    acc = nn.accuracy(X, Y)
     print "Accurracy: %s, Error:%s (this training)" % (acc, error)
 
     # check the differences between matrices
@@ -108,8 +101,52 @@ def test_FFN():
     print "Note how 2 NN with same accuracy may have totally different values!"
 
 
-def test_speed_sigmoid():
-    """Check the speed between compute sigmoid again for derivate or
+
+@pytest.mark.slow
+def study_gradients():
+    "Check that numerical and backpropagation get same results"
+    chp = Checkpoint()
+
+    # sizes = (20 * 20, 10 * 10, 5 * 5, 10)
+    sizes = (20 * 20, 5 * 5, 10)
+    nn = FNN(sizes=sizes)
+
+    Theta = chp.set('Theta', nn.Theta)
+    nn.setup(Theta)
+
+    data = loadmat('data/ex4data1.mat')
+    X, y = data['X'], data['y']
+    Y, mapping = expand_labels(y)
+
+    # compute gradients using finite difference and backprop
+    lamb = 2
+    nn.forward(X)
+
+    t0 = time.time()
+    grad_num = chp.set('grad_num', nn.grad_numerical, X, Y, lamb)
+
+    t1 = time.time()
+    grad_bp = nn.grad(X, Y, lamb)
+
+    t2 = time.time()
+    diff = grad_num - grad_bp
+    diff = diff * diff
+
+    for i, th in enumerate(diff):
+        error = th.mean()
+        assert error < 1e-3
+        print "Matrix: %s, error: %s" % (i, error)
+
+    e1 = t1 - t0
+    e2 = t2 - t1
+    print "Finite Difference: %ds" % e1
+    print "Back Propagation:  %ds" % e2
+    print "BP/FD: %d faster" % (e1 / e2)
+
+
+@pytest.mark.slow
+def study_speed_sigmoid():
+    """Study the speed between compute sigmoid again for derivate or
     store H and clone and manipulating the bias column when needed.
 
     The results show that sigmoid evaluaition is 20-30 times slower
@@ -150,27 +187,9 @@ def test_speed_sigmoid():
     plt.plot(relspeed)
     plt.title('Relative speed from copy to sigmoid evaluation')
     plt.show()
-    foo = 1
 
 
-def test_train_nn_with_regular_min_methods():
-    chp = Checkpoint()
-    sizes = (20 * 20, 10 * 10, 5 * 5, 10)
-    nn = FNN(sizes=sizes)
-
-    data = loadmat('ex4data1.mat')
-    X, y = data['X'], data['y']
-    Y, mapping = expand_labels(y)
-
-    lamb = 2
-    # nn.solve(X, y, lamb=lamb, checkpoint='test.npz')
-    nn.train(X, y, learning_rate=lamb,
-                     method='L-BFGS-B',
-                     checkpoint=chp)
-
-
-MNIST = 'MNIST original'
-def test_MNIST_dataset_with_multimethods():
+def study_MNIST_dataset_with_multimethods():
     """Test some methods or combination of them to train FNN for MNIST
     e.g.
        - GC
@@ -214,10 +233,9 @@ def test_MNIST_dataset_with_multimethods():
         print "Method: %s : %d secs" % (method, r.elapsed)
 
     pplot(results, 'error', 'accuracy')
-    foo = 1
 
 
-def test_MNIST_training():
+def study_MNIST_training():
     """Train a FNN for MNIST using batch
     """
     chp = Checkpoint()
@@ -225,7 +243,7 @@ def test_MNIST_training():
     layers = (28 * 28, 14 * 14, 7 * 7, 10)
     # layers = (28 * 28, 10 * 10, 10)
 
-    method = [('CG', 5), ('L-BFGS-B', 10 ** 4)]
+    # method = [('CG', 5), ('L-BFGS-B', 10 ** 4)]
     method = 'L-BFGS-B'
 
     agent = FNN(layers)
@@ -269,78 +287,11 @@ def test_MNIST_training():
 
     results = dict(accuracy=accuracy)
     pplot(results, 'accuracy')
-    foo = 1
-
-
-dbname = 'example.db'
-def test_save_sqlite_arrays():
-    "Load MNIST database (70000 samples) and store in a compressed SQLite db"
-    os.path.exists(dbname) and os.unlink(dbname)
-    con = sqlite3.connect(dbname, detect_types=sqlite3.PARSE_DECLTYPES)
-    cur = con.cursor()
-    cur.execute("create table test (idx integer primary key, X array, y integer );")
-
-    mnist = fetch_mldata('MNIST original')
-
-    X, y =  mnist.data, mnist.target
-    m = X.shape[0]
-    t0 = time.time()
-    for i, x in enumerate(X):
-        cur.execute("insert into test (idx, X, y) values (?,?,?)",
-                    (i, y, int(y[i])))
-        if not i % 100 and i > 0:
-            elapsed = time.time() - t0
-            remain = float(m - i) / i * elapsed
-            print "\r[%5d]: %3d%% remain: %d secs" % (i, 100 * i / m, remain),
-            sys.stdout.flush()
-
-    con.commit()
-    con.close()
-    elapsed = time.time() - t0
-    print
-    print "Storing %d images in %0.1f secs" % (m, elapsed)
-
-def test_load_sqlite_arrays():
-    "Query MNIST SQLite database and load some samples"
-    con = sqlite3.connect(dbname, detect_types=sqlite3.PARSE_DECLTYPES)
-    cur = con.cursor()
-
-    # select all images labeled as '2'
-    t0 = time.time()
-    cur.execute('select idx, X, y from test where y = 2')
-    data = cur.fetchall()
-    elapsed = time.time() - t0
-    print "Retrieve %d images in %0.1f secs" % (len(data), elapsed)
-
-
-
-
-
-
-
-def test_checkpoint():
-
-    chp = Checkpoint()
-    chp['foo'] = 'bar'
-    chp.save()
-
-    filename = chp.filename
-    del chp
-
-    chp2 = Checkpoint(filename)
-    assert chp2['foo'] == 'bar'
-
 
 
 if __name__ == '__main__':
-    test_checkpoint()
-    # test_FFN()
-    # test_gradients()
-    # test_speed_sigmoid()
-    # test_train_nn_with_regular_min_methods()
-    # test_MNIST_dataset_with_multimethods()
-    test_MNIST_training()
-    # test_save_sqlite_arrays()
-    # test_load_sqlite_arrays()
-
-    pass
+    study_gradients()
+    test_FFN()
+    # study_speed_sigmoid()
+    # study_MNIST_dataset_with_multimethods()
+    # study_MNIST_training()

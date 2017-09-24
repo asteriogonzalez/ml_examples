@@ -79,7 +79,7 @@ import inspect
 
 class NullCheckpoint(dict):
     "A null checkpoint that does nothing"
-    def __init__(self, filename):
+    def __init__(self, filename=''):
         self.filename = filename
 
     def save(self, **data):
@@ -105,7 +105,8 @@ class Checkpoint(dict):
 
     # compressor = bz2.BZ2File
     compressor = gzip.GzipFile
-    def __init__(self, filename=None):
+    def __init__(self, filename=None, clean=False):
+        self.modified = False
         if not filename:
             filename = inspect.stack()[1][3]
 
@@ -124,7 +125,7 @@ class Checkpoint(dict):
         filename = os.path.abspath(filename)
 
         self.filename = filename
-        self.load()
+        self.load(clean)
 
     def save(self, **data):
         "save the dict to disk"
@@ -141,19 +142,47 @@ class Checkpoint(dict):
         with self.compressor(self.filename, 'wb') as f:
             pickle.dump(data, f, protocol=2)
 
-    def load(self):
+        self.modified = False
+
+    def load(self, clean=False):
         "load dict from disk"
         if os.access(self.filename, os.F_OK):
             mtime = os.stat(self.filename).st_mtime
-            if time.time() - mtime > self.CACHE_EXPIRE:
+            if clean or time.time() - mtime > self.CACHE_EXPIRE:
                 print "** Ignoring EXPIRED checkpoint data: %s **" % os.path.basename(self.filename)
             else:
                 print "<< Loading checkpoint: %s" % os.path.basename(self.filename)
                 with self.compressor(self.filename, 'rb') as f:
                     data = pickle.load(f)
                 self.update(data)
-            self['CREATION_DATE'] = mtime
+                if len(self) > 0:
+                    # add only mtime when something is loaded
+                    # to allow checks like:
+                    # result = Checkpoint()
+                    # result = result or func()
+
+                    self.__dict__['CREATION_DATE'] = mtime
         return self
+
+
+    def set(self, key, func, *args, **kw):
+        "Similat to setdefault but only call function when key don't exists"
+        if not self.has_key(key):
+            if isinstance(func, (types.FunctionType, types.MethodType)):
+                self[key] = func(*args, **kw)
+            else:
+                self[key] = func  # is a value
+        return self[key]
+
+    def __setitem__(self, key, value):
+        dict.__setitem__(self, key, value)
+        self.modified = True
+
+    def __del__(self):
+        if self.modified:
+            print "is modify...(out of scope) ..."
+            self.save()
+
 
 # -------------------------------------------------
 # Misc (for review)
@@ -533,7 +562,7 @@ def expand_labels(y, n_klasses=None):
     then you must provide n_klasses parameter to build the matrix with
     the right (full) dimension.
     """
-    if len(y.shape) == 1:
+    if len(y.shape) == 1 or y.shape[-1] == 1:
         klasses = list(np.unique(y))
         klasses.sort()
 
@@ -581,6 +610,9 @@ class ClassificationAgent(Agent):
         method: minimization method to be used, L-BFGS-B by default.
         learning_rate: the regularization parameter (lambda)
         """
+        if checkpoint is None:
+            checkpoint = NullCheckpoint()
+
         Y, mapping = expand_labels(y)
 
         def cost(theta, X, Y, learning_rate=0):
@@ -709,8 +741,6 @@ class FNN(ClassificationAgent):
             epsilon = np.sqrt(6) / np.sqrt(sum(size))
             Theta = np.random.randn(*size) * epsilon
             self.Theta.append(Theta)
-
-
 
     def solve(self, X, y, alpha=1.0, lamb=0.1, min_accuracy=0.95, checkpoint='',
               plot=False):

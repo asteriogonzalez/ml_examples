@@ -106,3 +106,7 @@ ENV/
 
 # Code Analysis and QA
 ca
+
+# checkpoints
+.checkpoints/
+

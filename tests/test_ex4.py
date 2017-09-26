@@ -21,14 +21,17 @@ MNIST = 'MNIST original'
 
 
 
-foo = pytest.mark.foo
+study = pytest.mark.study
+pre = pytest.mark.pre
 
-@foo
+def test_normal():
+    pass
+
+@pre
 def test_foo():
     print "Ok :)"
 
-
-@pytest.mark.incremental
+@pre(name='AI')
 class TestUserHandling(object):
     def test_login(self):
         pass
@@ -37,11 +40,9 @@ class TestUserHandling(object):
     def test_deletion(self):
         pass
 
-def test_normal():
-    pass
 
-
-def _test_FFN():
+@study(name='AI')
+def test_FFN():
     """This test performs some stages:
 
     1. Load a pre-trained NN from Andrew Ng course and make predictions using
@@ -102,8 +103,8 @@ def _test_FFN():
 
 
 
-@pytest.mark.slow
-def study_gradients():
+@study(name='gradients')
+def test_gradients_with_real_dataset():
     "Check that numerical and backpropagation get same results"
     chp = Checkpoint()
 
@@ -143,9 +144,47 @@ def study_gradients():
     print "Back Propagation:  %ds" % e2
     print "BP/FD: %d faster" % (e1 / e2)
 
+def test_gradients():
+    "Check that numerical and backpropagation get same results"
 
-@pytest.mark.slow
-def study_speed_sigmoid():
+    # sizes = (20 * 20, 10 * 10, 5 * 5, 10)
+    samples = 1000
+    sizes = (5 * 5, 10)
+    nn = FNN(sizes=sizes)
+
+    X = np.random.randn(samples,sizes[0])
+    y = np.random.randint(0, sizes[1], (samples, 1))
+
+    Y, mapping = expand_labels(y)
+
+    # compute gradients using finite difference and backprop
+    lamb = 2
+    nn.forward(X)
+
+    t0 = time.time()
+    grad_num = nn.grad_numerical(X, Y, lamb)
+
+    t1 = time.time()
+    grad_bp = nn.grad(X, Y, lamb)
+
+    t2 = time.time()
+    diff = grad_num - grad_bp
+    diff = diff * diff
+
+    for i, th in enumerate(diff):
+        error = th.mean()
+        assert error < 1e-3
+        print "Matrix: %s, error: %s" % (i, error)
+
+    e1 = t1 - t0
+    e2 = t2 - t1
+    print "Finite Difference: %ds" % e1
+    print "Back Propagation:  %ds" % e2
+    print "BP/FD: %d faster" % (e1 / e2)
+
+
+@study(name='sigmoid')
+def test_speed_sigmoid():
     """Study the speed between compute sigmoid again for derivate or
     store H and clone and manipulating the bias column when needed.
 
@@ -189,7 +228,8 @@ def study_speed_sigmoid():
     plt.show()
 
 
-def study_MNIST_dataset_with_multimethods():
+@study
+def test_MNIST_dataset_with_multimethods():
     """Test some methods or combination of them to train FNN for MNIST
     e.g.
        - GC
@@ -235,7 +275,8 @@ def study_MNIST_dataset_with_multimethods():
     pplot(results, 'error', 'accuracy')
 
 
-def study_MNIST_training():
+@study
+def test_MNIST_training():
     """Train a FNN for MNIST using batch
     """
     chp = Checkpoint()
@@ -290,8 +331,9 @@ def study_MNIST_training():
 
 
 if __name__ == '__main__':
-    study_gradients()
-    test_FFN()
+    pass
+    test_gradients()
+    # test_FFN()
     # study_speed_sigmoid()
     # study_MNIST_dataset_with_multimethods()
     # study_MNIST_training()
